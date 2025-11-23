@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>📚 書籍清單</h2>
+
+{% if is_admin %}
+  <div class="admin-actions">
+    <a href="{{ url_for('add_book') }}" class="btn btn--primary">➕ 新增書籍</a>
+  </div>
+{% endif %}
+
+<div class="grid">
+  {% for book in books %}
+  <div class="card">
+    <h3>{{ book.title }}</h3>
+    <p>書櫃：{{ book.cabinet.name }}</p>
+    <p class="status {% if book.in_stock %}in-stock{% else %}out-stock{% endif %}">
+      {% if book.in_stock %}🟢 在庫{% else %}🟠 無庫存{% endif %}
+    </p>
+    {% if is_admin %}
+    <form method="post" action="{{ url_for('toggle_stock', id=book.id) }}" class="card-action">
+      <button type="submit" class="btn btn--secondary btn--sm">
+        切換庫存
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

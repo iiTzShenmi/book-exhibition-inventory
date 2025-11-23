@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block content %}
+<section id="admin-dashboard" data-all-cabinets='{{ cabinets_payload | tojson | safe }}'>
+  <h2>📦 管理面板</h2>
+
+  <div class="grid">
+    {% for title, entries in grouped_books.items() %}
+    <div class="card" id="card-{{ title }}">
+      <h3>{{ title }}</h3>
+
+      <div class="status-list">
+        {% for entry in entries %}
+        <div class="status-row">
+          <span class="cab">{{ entry.cabinet }}</span>
+          <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
+        </div>
+        {% if entry.notes %}
+        {% for note in entry.notes %}
+        <div class="reserve-hint">{{ note }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="edit-btn-container btn-group">
+        <button type="button" class="edit-btn btn--sm" onclick="openBookModal('{{ title }}')">編輯</button>
+        <button type="button" class="mini-btn secondary btn--sm" onclick="openCabinetModal('{{ title }}')">新增 / 移除櫃位</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div id="book-modal-overlay" class="modal-overlay" style="display:none;">
+    <div id="book-modal-box" class="modal-box"></div>
+  </div>
+
+  <div id="cabinet-modal-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box small">
+      <h3>櫃位管理（此書）</h3>
+
+      <form id="cabinet-form" class="cabinet-form" method="post" action="">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field action-toggle">
+          <label>操作</label>
+          <div class="action-options">
+            <button type="button" class="action-btn add active" data-value="add">新增櫃位</button>
+            <button type="button" class="action-btn remove" data-value="remove">移除櫃位</button>
+          </div>
+          <input type="hidden" name="add_or_remove" id="cabinet-action" value="add">
+        </div>
+
+        <div class="field">
+          <label>櫃位名稱</label>
+          <select name="cabinet" id="cabinet-select" required>
+            <option value="">請選擇書櫃...</option>
+            {% for cab in all_cabinets %}
+            <option value="{{ cab.name }}">{{ cab.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="actions btn-group" style="margin-top:1rem;">
+          <button type="submit" class="btn btn--primary">確定</button>
+          <button type="button" class="btn btn--secondary" onclick="closeCabinetModal()">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="add-book-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box small">
+      <h3>新增書籍</h3>
+      <form id="add-book-form" class="add-book-form" method="post" action="/add_book">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field">
+          <label>書名</label>
+          <input type="text" name="title" id="add-book-title" required>
+        </div>
+        <div class="field">
+          <label>櫃位</label>
+          <select name="cabinet_id" id="add-book-cabinet" required>
+            <option value="">請選擇書櫃...</option>
+            {% for cab in all_cabinets %}
+            <option value="{{ cab.id }}">{{ cab.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="field">
+          <label>數量（可選）</label>
+          <input type="number" name="amount" min="1" value="1">
+        </div>
+        <div class="actions btn-group" style="margin-top:1rem;">
+          <button type="submit" class="btn btn--primary">新增</button>
+          <button type="button" class="btn btn--secondary" onclick="closeAddBookModal()">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="cabinet-manager-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box large">
+      <h3>櫃位資訊</h3>
+
+      <form id="cabinet-create-form" class="cabinet-manager__create" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="cabinet-manager__row">
+          <div class="field">
+            <label>櫃位名稱</label>
+            <input type="text" name="name" required>
+          </div>
+          <div class="field">
+            <label>櫃位類型</label>
+            <select name="type" required>
+              <option value="display">展示櫃</option>
+              <option value="reserve" selected>備書櫃</option>
+            </select>
+          </div>
+          <div class="actions btn-group">
+            <button type="submit" class="btn btn--primary">新增櫃位</button>
+          </div>
+        </div>
+      </form>
+
+      <div class="cabinet-manager__list">
+        <h4 style="margin-top:1.5rem;">所有櫃位</h4>
+        <div id="cabinet-list" class="cabinet-list"></div>
+      </div>
+
+      <div class="actions btn-group" style="margin-top:1.5rem;">
+        <button type="button" class="btn btn--secondary" onclick="closeCabinetManager()">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cabinet-books-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box medium">
+      <div class="cabinet-books-header">
+        <h3 id="cabinet-books-title" class="cabinet-books-title">櫃位書籍</h3>
+        <button type="button" class="btn btn--secondary btn--sm" onclick="closeCabinetBooksModal()">關閉</button>
+      </div>
+      <div id="cabinet-books-list" class="cabinet-books-list"></div>
+    </div>
+  </div>
+
+  <div id="move-book-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box small">
+      <h3>移動書籍</h3>
+      <form id="move-book-form" class="move-book-form">
+        <input type="hidden" id="move-book-id">
+        <input type="hidden" id="move-source-cabinet-id">
+        <div class="field">
+          <label>書名</label>
+          <div id="move-book-title" class="move-book-title">-</div>
+        </div>
+        <div class="field">
+          <label>目標櫃位</label>
+          <select id="move-book-target" required>
+            <option value="">請選擇櫃位</option>
+          </select>
+        </div>
+        <div class="actions btn-group" style="margin-top:1rem;">
+          <button type="submit" class="btn btn--primary">移動</button>
+          <button type="button" class="btn btn--secondary" onclick="closeMoveBookModal()">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/admin_dashboard.js') }}" defer></script>
+{% endblock %}

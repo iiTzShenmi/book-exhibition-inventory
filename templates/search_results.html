@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>搜尋結果：「{{ query }}」</h2>
+
+{% if grouped_books %}
+<div class="grid">
+  {% for title, entries in grouped_books.items() %}
+  <div class="card">
+    <h3>{{ title }}</h3>
+    <div class="status-list">
+      {% for entry in entries %}
+      <div class="status-row">
+        <span class="cab">📚{{ entry.cabinet }}</span>
+        <span class="stat">{{ entry.status }}</span>
+      </div>
+      {% if is_admin and entry.notes %}
+      {% for note in entry.notes %}
+      <div class="reserve-hint">
+        {{ note }}
+      </div>
+      {% endfor %}
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p>找不到任何符合「{{ query }}」的書籍。</p>
+{% endif %}
+{% endblock %}
