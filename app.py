@@ -5,6 +5,7 @@ import re
 import shutil
 import json
 import io
+import subprocess
 from datetime import datetime
 from collections import defaultdict, Counter
 from sqlalchemy import text, func
@@ -169,6 +170,19 @@ def ensure_hourly_backup():
     log_action("auto_backup", target="system", details=f"db={os.path.basename(backups['db'])}")
     db.session.commit()
     return backups
+
+
+def maybe_git_push(backups, message):
+    """Optionally git-commit and push backups if AUTO_GIT_PUSH is set."""
+    if not os.environ.get("AUTO_GIT_PUSH"):
+        return
+    try:
+        files = [CSV_PATH, backups["db"], backups["csv"]]
+        subprocess.check_call(["git", "add", *files], cwd=BASE_DIR)
+        subprocess.check_call(["git", "commit", "-m", message], cwd=BASE_DIR)
+        subprocess.check_call(["git", "push"], cwd=BASE_DIR)
+    except subprocess.CalledProcessError as exc:
+        print(f"[git-push] failed: {exc}")
 
 
 def ensure_cabinet_type_column():
@@ -1286,6 +1300,7 @@ def admin_backup():
         json.dump({"last": datetime.utcnow().isoformat()}, f)
     log_action("create_backup", target="system", details=f"db={os.path.basename(backups['db'])},csv={os.path.basename(backups['csv'])}")
     db.session.commit()
+    maybe_git_push(backups, f"Backup {backups['timestamp']}")
     return jsonify({"success": True, "message": "備份完成", "backups": backups, "timestamp": backups["timestamp"]})
 
 
