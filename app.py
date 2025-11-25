@@ -2,6 +2,10 @@ import csv
 import os
 import secrets
 import re
+import shutil
+import json
+import io
+from datetime import datetime
 from collections import defaultdict, Counter
 from sqlalchemy import text, func
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -23,6 +27,9 @@ DATA_DIR = os.path.join(BASE_DIR, "database")
 os.makedirs(DATA_DIR, exist_ok=True)
 CSV_PATH = os.path.join(DATA_DIR, "inventory.csv")
 DB_PATH = os.path.join(DATA_DIR, "inventory.db")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+os.makedirs(BACKUP_DIR, exist_ok=True)
+LAST_BACKUP_META = os.path.join(BACKUP_DIR, "last_auto_backup.json")
 
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 _plain_password = os.environ.get("ADMIN_PASSWORD")
@@ -128,8 +135,40 @@ def export_db_to_csv():
                     inv.title,
                     str(inv.qty_on_hand),
                     inv.author or "",
-                ])
+        ])
     print("[export_db_to_csv] DB -> CSV export complete.")
+
+
+def create_backup():
+    """Create timestamped copies of DB and CSV."""
+    export_db_to_csv()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    db_backup = os.path.join(BACKUP_DIR, f"inventory_{ts}.db")
+    csv_backup = os.path.join(BACKUP_DIR, f"inventory_{ts}.csv")
+    shutil.copy2(DB_PATH, db_backup)
+    shutil.copy2(CSV_PATH, csv_backup)
+    return {"db": db_backup, "csv": csv_backup, "timestamp": ts}
+
+
+def ensure_hourly_backup():
+    """Ensure at least one backup per hour; lightweight guard on admin pages."""
+    now = datetime.utcnow()
+    last_ts = None
+    if os.path.exists(LAST_BACKUP_META):
+        try:
+            with open(LAST_BACKUP_META, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                last_ts = datetime.fromisoformat(data.get("last") or "")
+        except Exception:
+            last_ts = None
+    if last_ts and (now - last_ts).total_seconds() < 3600:
+        return None
+    backups = create_backup()
+    with open(LAST_BACKUP_META, "w", encoding="utf-8") as f:
+        json.dump({"last": now.isoformat()}, f)
+    log_action("auto_backup", target="system", details=f"db={os.path.basename(backups['db'])}")
+    db.session.commit()
+    return backups
 
 
 def ensure_cabinet_type_column():
@@ -609,6 +648,14 @@ def admin_dashboard():
         .limit(20)
         .all()
     )
+    auto_backup_meta = ensure_hourly_backup()
+    last_backup_ts = None
+    if os.path.exists(LAST_BACKUP_META):
+        try:
+            with open(LAST_BACKUP_META, "r", encoding="utf-8") as f:
+                last_backup_ts = json.load(f).get("last")
+        except Exception:
+            last_backup_ts = None
 
     return render_template(
         "admin_dashboard.html",
@@ -616,6 +663,26 @@ def admin_dashboard():
         all_cabinets=all_cabinets,
         cabinets_payload=cabinets_payload,
         audit_logs=audit_logs,
+        last_backup_ts=last_backup_ts,
+    )
+
+
+@app.route("/admin/audit")
+def audit_page():
+    if not session.get("is_admin"):
+        return redirect(url_for("login"))
+
+    logs = (
+        AuditLog.query.order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    ensure_hourly_backup()
+    return render_template(
+        "audit.html",
+        title="Audit Trail",
+        audit_logs=logs,
+        show_top_sellers=False,
     )
 
 @app.route("/toggle/<int:book_id>", methods=["POST"])
@@ -1208,3 +1275,44 @@ def get_notifications():
 def logout():
     session.clear()
     return redirect(url_for("home"))
+
+
+@app.route("/admin/backup", methods=["POST"])
+def admin_backup():
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "未登入"}), 401
+    backups = create_backup()
+    with open(LAST_BACKUP_META, "w", encoding="utf-8") as f:
+        json.dump({"last": datetime.utcnow().isoformat()}, f)
+    log_action("create_backup", target="system", details=f"db={os.path.basename(backups['db'])},csv={os.path.basename(backups['csv'])}")
+    db.session.commit()
+    return jsonify({"success": True, "message": "備份完成", "backups": backups, "timestamp": backups["timestamp"]})
+
+
+@app.route("/admin/audit/export")
+def export_audit_csv():
+    if not session.get("is_admin"):
+        return redirect(url_for("login"))
+
+    logs = AuditLog.query.order_by(AuditLog.created_at.desc()).all()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["timestamp", "actor", "action", "target", "details"])
+    for log in logs:
+        writer.writerow([
+            log.created_at.isoformat() if log.created_at else "",
+            log.actor or "",
+            log.action or "",
+            log.target or "",
+            (log.details or "").replace("\n", " "),
+        ])
+    output.seek(0)
+
+    resp = app.response_class(
+        response=output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=audit_logs.csv"
+        }
+    )
+    return resp

@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="audit-page">
+  <div class="section-head">
+    <p class="eyebrow">Audit Trail</p>
+    <div class="section-head__title">
+      <h2>操作紀錄</h2>
+      <div class="section-head__actions">
+        <a class="btn btn--secondary" href="{{ url_for('export_audit_csv') }}">匯出 CSV</a>
+        <a class="btn btn--primary" href="{{ url_for('admin_dashboard') }}">返回主頁</a>
+      </div>
+    </div>
+    <p class="muted">最近 200 筆系統操作，含操作者、目標與時間。</p>
+  </div>
+
+  {% if audit_logs %}
+  <div class="audit-table">
+    <div class="audit-table__head">
+      <span>時間</span>
+      <span>動作</span>
+      <span>目標</span>
+      <span>操作者</span>
+      <span>細節</span>
+    </div>
+    {% for log in audit_logs %}
+    <div class="audit-table__row">
+      <span class="audit-time">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+      <span class="audit-action">{{ log.action }}</span>
+      <span class="audit-target">{{ log.target or '-' }}</span>
+      <span class="audit-actor">{{ log.actor or '-' }}</span>
+      <span class="audit-details">{{ log.details or '-' }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">尚無稽核紀錄。</p>
+  {% endif %}
+</section>
+{% endblock %}

@@ -2,9 +2,22 @@
 {% block content %}
 <section id="admin-dashboard" class="admin-board" data-all-cabinets='{{ cabinets_payload | tojson | safe }}'>
   <div class="section-head">
-    <p class="eyebrow">展場現場控管</p>
-    <h2>📦 管理面板</h2>
-    <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
+    <div class="section-head__title">
+      <div>
+        <p class="eyebrow">展場現場控管</p>
+        <h2>📦 管理面板</h2>
+        <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
+      </div>
+      <div class="card audit-card backup-card slim-card">
+        <div class="card__header">
+          <span class="chip chip--soft">備份</span>
+          <h3>資料備份</h3>
+        </div>
+        <p class="muted">備份會產生當前 DB 與 CSV 的副本。</p>
+        <p class="eyebrow" style="margin:4px 0;">上次備份：<span id="last-backup-ts">{{ last_backup_ts and last_backup_ts[:16].replace('T',' ') }}</span></p>
+        <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即備份</button>
+      </div>
+    </div>
   </div>
 
   <div class="grid admin-grid">
@@ -37,11 +50,12 @@
     {% endfor %}
   </div>
 
-  <div class="card audit-card">
-    <div class="card__header">
-      <span class="chip chip--soft">近期操作</span>
-      <h3>Audit Trail</h3>
-    </div>
+    <div class="card audit-card">
+      <div class="card__header">
+        <span class="chip chip--soft">近期操作</span>
+        <h3>Audit Trail</h3>
+        <a class="btn btn--secondary btn--sm" href="{{ url_for('audit_page') }}">檢視全部</a>
+      </div>
     {% if audit_logs %}
     <div class="audit-list">
       {% for log in audit_logs %}
@@ -165,8 +179,8 @@
         </div>
         <div class="cabinet-actions-row">
           <button type="button" class="btn btn--secondary btn--sm" id="cab-action-rename">重新命名書櫃</button>
-          <button type="button" class="btn btn--primary btn--sm" id="cab-action-toggle">更改書櫃類別</button>
-          <button type="button" class="btn btn--outline btn--sm" id="cab-action-view">查看書櫃</button>
+          <button type="button" class="btn btn--outline btn--sm" id="cab-action-toggle">更改書櫃類別</button>
+          <button type="button" class="btn btn--primary btn--sm" id="cab-action-view">查看書櫃</button>
           <button type="button" class="btn btn--danger btn--sm" id="cab-action-delete">刪除書櫃</button>
         </div>
       </div>
@@ -185,7 +199,7 @@
     <div class="modal-box medium">
       <div class="cabinet-books-header">
         <h3 id="cabinet-books-title" class="cabinet-books-title">櫃位書籍</h3>
-        <button type="button" class="btn btn--secondary btn--sm" onclick="closeCabinetBooksModal()">關閉</button>
+        <button type="button" class="btn btn--danger btn--sm" onclick="closeCabinetBooksModal()">關閉</button>
       </div>
       <div id="cabinet-books-list" class="cabinet-books-list"></div>
     </div>

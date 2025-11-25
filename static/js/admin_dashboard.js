@@ -1005,6 +1005,13 @@ function bindInlineForms() {
       }
     });
 
+    const backupBtn = document.getElementById('backup-btn');
+    if (backupBtn) {
+      backupBtn.addEventListener('click', () => {
+        runBackup(backupBtn).catch(() => {});
+      });
+    }
+
     const cabinetBooksList = document.getElementById('cabinet-books-list');
     if (cabinetBooksList) cabinetBooksList.addEventListener('click', handleCabinetBooksClick);
 
@@ -1015,12 +1022,45 @@ function bindInlineForms() {
     bindInlineForms();
   }
 
+  async function runBackup(btn) {
+    const button = btn || document.getElementById('backup-btn');
+    if (button) button.disabled = true;
+    try {
+      const res = await safeFetch('/admin/backup', {
+        method: 'POST',
+        headers: headersWithCsrf(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.message || '備份失敗', false);
+        return;
+      }
+      const tsEl = document.getElementById('last-backup-ts');
+      if (tsEl && data.timestamp) {
+        tsEl.textContent = data.timestamp.replace('T', ' ').slice(0, 16);
+      }
+      showToast(data.message || '備份完成', true, null);
+      console.info('[backup] created', data.backups || data);
+    } catch (err) {
+      console.error(err);
+      showToast('備份失敗', false);
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
   function init() {
     updateCabinetSelect();
     bindForms();
     bindActionToggleButtons();
     bindOverlayClickClose();
     bindKeyboardShortcuts();
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'add-book') {
+      openAddBookModal();
+    } else if (hash === 'cabinet-manager') {
+      openCabinetManager();
+    }
   }
 
   window.openAddBookModal = openAddBookModal;
@@ -1033,6 +1073,7 @@ function bindInlineForms() {
   window.closeCabinetBooksModal = closeCabinetBooksModal;
   window.closeMoveBookModal = closeMoveBookModal;
   window.refreshBookCard = refreshBookCard;
+  window.runBackup = runBackup;
 
   document.addEventListener('DOMContentLoaded', init);
 })();

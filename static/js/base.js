@@ -45,6 +45,27 @@
 
   window.showToast = showToast;
 
+  function handleAddBook() {
+    const overlay = document.getElementById('add-book-overlay');
+    if (overlay) {
+      openAddBookModal();
+    } else {
+      window.location.href = '/admin#add-book';
+    }
+  }
+
+  function handleCabinetManager() {
+    const overlay = document.getElementById('cabinet-manager-overlay');
+    if (overlay) {
+      openCabinetManager();
+    } else {
+      window.location.href = '/admin#cabinet-manager';
+    }
+  }
+
+  window.handleAddBook = handleAddBook;
+  window.handleCabinetManager = handleCabinetManager;
+
   function toggleAdvanced() {
     const panel = document.getElementById('advanced-panel');
     if (!panel) return;

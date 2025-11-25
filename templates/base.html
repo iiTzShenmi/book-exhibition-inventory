@@ -16,7 +16,7 @@
     <div class="bg-glow bg-glow--left"></div>
     <div class="bg-glow bg-glow--right"></div>
 
-    <header class="site-header {% if request.endpoint=='admin_dashboard' %}site-header--admin{% endif %}">
+    <header class="site-header {% if request.endpoint in ['admin_dashboard','audit_page'] %}site-header--admin{% endif %}">
       <div class="site-header__inner">
         <a class="brand" href="{{ url_for('home') }}">
           <span class="brand__mark">📚</span>
@@ -26,14 +26,15 @@
           </span>
         </a>
 
-        {% if request.endpoint == 'admin_dashboard' %}
+        {% if request.endpoint in ['admin_dashboard','audit_page'] %}
         <div class="admin-header-buttons">
           <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
             🔔
             <span id="notif-count" class="notif-count" style="display:none;">0</span>
           </button>
-          <button type="button" class="btn ghost logout-btn" onclick="openAddBookModal()">新增書籍</button>
-          <button type="button" class="btn ghost logout-btn" onclick="openCabinetManager()">櫃位管理</button>
+          <button type="button" class="btn ghost logout-btn" onclick="handleAddBook()">新增書籍</button>
+          <button type="button" class="btn ghost logout-btn" onclick="handleCabinetManager()">櫃位管理</button>
+          <a class="btn ghost logout-btn" href="{{ url_for('audit_page') }}">操作紀錄</a>
           <a class="btn solid logout-btn" href="{{ url_for('logout') }}">登出</a>
         </div>
         {% else %}
