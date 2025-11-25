@@ -2,8 +2,8 @@ import csv
 import os
 import secrets
 import re
-from collections import defaultdict
-from sqlalchemy import text
+from collections import defaultdict, Counter
+from sqlalchemy import text, func
 from werkzeug.security import check_password_hash, generate_password_hash
 from flask import (
     Flask,
@@ -16,7 +16,7 @@ from flask import (
     session,
     url_for,
 )
-from models import db, Book, Cabinet
+from models import db, Book, Cabinet, BookTitle, Inventory
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "database")
@@ -40,72 +40,95 @@ app.secret_key = (
 )
 db.init_app(app)
 
+def parse_qty(value):
+    """Parse a quantity string that may come as bool-ish text or int."""
+    if value is None:
+        return 0
+    text_val = str(value).strip().lower()
+    if text_val in {"true", "yes", "y", "1"}:
+        return 1
+    try:
+        return max(int(text_val), 0)
+    except ValueError:
+        return 0
+
+
 def sync_csv_to_db():
     """Import or update the database from CSV (one-way).
 
-    - Upserts books/cabinets that appear in the CSV
-    - Removes books that were deleted from the CSV (keeps cabinets)
+    CSV columns supported:
+    - cabinet_name, title, qty_or_bool, author (optional)
     """
     if not os.path.exists(CSV_PATH):
         print(f"[sync_csv_to_db] CSV not found: {CSV_PATH}")
         return
 
-    seen_pairs = set()  # (cabinet_name, title)
+    aggregates = Counter()  # (cabinet_name, title) -> qty
+    authors = {}
 
     with open(CSV_PATH, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
         for row in reader:
             if len(row) < 3:
                 continue
-            cab_name, title, stock_str, *rest = row
-            author = rest[0].strip() if rest else ""
-            in_stock = stock_str.strip().lower() == "true"
-            seen_pairs.add((cab_name, title))
+            cab_name, title, qty_str, *rest = row
+            author = (rest[0].strip() if rest else "") or None
+            qty = parse_qty(qty_str)
+            key = (cab_name.strip(), title.strip())
+            aggregates[key] += qty
+            if author and title not in authors:
+                authors[title] = author
 
-            cabinet = Cabinet.query.filter_by(name=cab_name).first()
-            if not cabinet:
-                cabinet = Cabinet(name=cab_name)
-                db.session.add(cabinet)
-                db.session.flush()
-            # ensure cabinet has a type set
-            if hasattr(cabinet, "type") and not cabinet.type:
-                cabinet.type = "display"
+    seen_pairs = set()
+    for (cab_name, title), qty in aggregates.items():
+        if not cab_name or not title:
+            continue
+        seen_pairs.add((cab_name, title))
+        cabinet = Cabinet.query.filter_by(name=cab_name).first()
+        if not cabinet:
+            cabinet = Cabinet(name=cab_name)
+            db.session.add(cabinet)
+            db.session.flush()
+        if hasattr(cabinet, "type") and not cabinet.type:
+            cabinet.type = "display"
 
-            book = Book.query.filter_by(title=title, cabinet_id=cabinet.id).first()
-            if not book:
-                book = Book(
-                    title=title,
-                    in_stock=in_stock,
-                    cabinet_id=cabinet.id,
-                    author=author or None,
-                )
-                db.session.add(book)
-            else:
-                book.in_stock = in_stock
-                if author:
-                    book.author = author
+        title_obj = get_or_create_title(title, authors.get(title))
+        inventory = Inventory.query.filter_by(
+            title_id=title_obj.id, cabinet_id=cabinet.id
+        ).first()
+        if not inventory:
+            inventory = Inventory(
+                title_id=title_obj.id,
+                cabinet_id=cabinet.id,
+                qty_on_hand=qty,
+                qty_reserved=0,
+            )
+            db.session.add(inventory)
+        else:
+            inventory.qty_on_hand = qty
 
-    # Remove books no longer present in the CSV (by cabinet name + title pair)
-    for book in Book.query.join(Cabinet).all():
-        pair = (book.cabinet.name if book.cabinet else "", book.title)
+    # Remove inventory rows no longer present
+    for item in Inventory.query.join(Cabinet).join(BookTitle).all():
+        pair = (item.cabinet.name if item.cabinet else "", item.title)
         if pair not in seen_pairs:
-            db.session.delete(book)
+            db.session.delete(item)
 
     db.session.commit()
     print("[sync_csv_to_db] CSV -> DB sync complete.")
+
 
 def export_db_to_csv():
     """Export database back to CSV (one-way)."""
     with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         for cab in Cabinet.query.all():
-            for book in cab.books:
+            for inv in cab.books:
                 writer.writerow([
                     cab.name,
-                    book.title,
-                    str(book.in_stock),
-                    book.author or "",
-        ])
+                    inv.title,
+                    str(inv.qty_on_hand),
+                    inv.author or "",
+                ])
     print("[export_db_to_csv] DB -> CSV export complete.")
 
 
@@ -125,7 +148,7 @@ def ensure_cabinet_type_column():
 
 
 def ensure_author_column():
-    """Ensure the book table has an author column (manual migration for SQLite)."""
+    """Ensure the legacy book table has an author column (for migration)."""
     with db.engine.connect() as conn:
         result = conn.execute(text("PRAGMA table_info(book)"))
         columns = [row[1] for row in result]
@@ -134,12 +157,107 @@ def ensure_author_column():
             conn.execute(text("ALTER TABLE book ADD COLUMN author TEXT"))
 
 
+def migrate_legacy_books_into_inventory():
+    """One-time migration: move rows from old book table into new normalized tables."""
+    with db.engine.connect() as conn:
+        has_legacy = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='book'")
+        ).fetchone()
+    if not has_legacy:
+        return
+
+    # If inventory already has data, assume migration done
+    if db.session.query(Inventory).first():
+        return
+
+    ensure_author_column()
+
+    with db.engine.connect() as conn:
+        legacy_rows = conn.execute(
+            text("SELECT title, author, in_stock, cabinet_id FROM book")
+        ).fetchall()
+
+    if not legacy_rows:
+        return
+
+    # aggregate by (title, cabinet) so qty reflects copies
+    aggregate = Counter()
+    authors = {}
+    for row in legacy_rows:
+        title, author, in_stock, cabinet_id = row
+        qty = 1 if in_stock else 0
+        key = (title or "", cabinet_id)
+        aggregate[key] += qty
+        if title not in authors and author:
+            authors[title] = author
+
+    for (raw_title, cabinet_id), qty in aggregate.items():
+        if not raw_title or not cabinet_id:
+            continue
+        if qty <= 0:
+            continue
+        cabinet = Cabinet.query.get(cabinet_id)
+        if not cabinet:
+            continue
+        title_obj = BookTitle.query.filter_by(title=raw_title).first()
+        if not title_obj:
+            title_obj = BookTitle(title=raw_title, author=authors.get(raw_title, ""))
+            db.session.add(title_obj)
+            db.session.flush()
+
+        inventory = Inventory(
+            title_id=title_obj.id,
+            cabinet_id=cabinet.id,
+            qty_on_hand=max(qty, 0),
+            qty_reserved=0,
+        )
+        db.session.add(inventory)
+
+    db.session.commit()
+
+
+def drop_legacy_book_table():
+    """Remove legacy book table after migration to avoid confusion."""
+    with db.engine.connect() as conn:
+        has_legacy = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='book'")
+        ).fetchone()
+    if not has_legacy:
+        return
+    with db.engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS book"))
+    print("[cleanup] Dropped legacy book table")
+
+
+def get_or_create_title(title, author=None):
+    """Fetch or create a BookTitle record."""
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return None
+
+    existing = BookTitle.query.filter_by(title=clean_title).first()
+    if existing:
+        if author and not existing.author:
+            existing.author = author
+            db.session.flush()
+        return existing
+
+    new_title = BookTitle(title=clean_title, author=(author or "").strip() or None)
+    db.session.add(new_title)
+    db.session.flush()
+    return new_title
+
+
+LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "1"))
+
+
 def initialize_app():
     """Run one-time startup tasks."""
     with app.app_context():
         db.create_all()
         ensure_cabinet_type_column()
-        ensure_author_column()
+        migrate_legacy_books_into_inventory()
+        drop_legacy_book_table()
         sync_csv_to_db()
 initialize_app()
 
@@ -157,7 +275,7 @@ def cabinet_to_dict(cabinet):
         "id": cabinet.id,
         "name": cabinet.name,
         "type": cab_type,
-        "book_count": len(cabinet.books),
+        "book_count": sum((b.qty_on_hand or 0) for b in cabinet.books),
     }
 
 
@@ -167,6 +285,8 @@ def book_to_dict(book):
         "id": book.id,
         "title": book.title,
         "in_stock": book.in_stock,
+        "qty_on_hand": book.qty_on_hand,
+        "qty_reserved": book.qty_reserved,
         "cabinet_id": book.cabinet_id,
         "cabinet_name": book.cabinet.name if book.cabinet else "",
         "author": book.author,
@@ -195,7 +315,7 @@ def purge_empty_reserve_books():
     """Remove reserve cabinet entries with no stock."""
     stale_books = (
         Book.query.join(Cabinet)
-        .filter(Book.in_stock.is_(False))
+        .filter(Book.qty_on_hand <= 0)
         .all()
     )
     removed = 0
@@ -235,15 +355,15 @@ def build_grouped_book_entries(
     grouped_entries = []
     for title, title_books in books_by_title.items():
         reference_list = reference_by_title.get(title, title_books)
-        any_in_stock = any(ref.in_stock for ref in reference_list)
-        all_in_stock = all(ref.in_stock for ref in reference_list)
+        any_in_stock = any((ref.qty_on_hand or 0) > 0 for ref in reference_list)
+        all_in_stock = all((ref.qty_on_hand or 0) > 0 for ref in reference_list)
         reserve_sources = sorted(
             {
                 ref.cabinet.name
                 for ref in reference_list
                 if ref.cabinet
                 and (ref.cabinet.type or "").strip().lower() == "reserve"
-                and ref.in_stock
+                and (ref.qty_on_hand or 0) > 0
             }
         )
         reserve_sources = sorted(
@@ -287,12 +407,16 @@ def build_grouped_book_entries(
                 if book.in_stock and note_text and has_display and display_in_subset:
                     continue
 
-            in_stock = book.in_stock
-            status = (
-                "🟢 在庫"
-                if in_stock
-                else ("🔴 缺貨" if not any_in_stock else "🟠 無庫存")
-            )
+            qty = book.qty_on_hand or 0
+            in_stock = qty > 0
+            if in_stock:
+                status = (
+                    f"🟢 在庫（{qty} 本）"
+                    if qty > LOW_STOCK_THRESHOLD
+                    else f"🟠 低庫存（{qty} 本）"
+                )
+            else:
+                status = "🔴 缺貨" if not any_in_stock else "🟠 無庫存"
             entry = {
                 "cabinet": cabinet_name,
                 "status": status,
@@ -336,13 +460,19 @@ def collect_replenish_alerts():
     """Dynamically scan for books/cabinets that need attention."""
     alerts = []
 
-    # 1️⃣ Books marked out of stock but have reserve copies
-    from models import Book, Cabinet
-
-    out_books = Book.query.filter_by(in_stock=False).all()
+    # 1️⃣ Books out of stock but have reserve copies
+    out_books = Book.query.filter(Book.qty_on_hand <= 0).all()
+    seen_out = set()
     for book in out_books:
-        # Check if same title exists in a reserve cabinet
-        reserve_copy = Book.query.filter_by(title=book.title).join(Cabinet).filter(Cabinet.type == "reserve").first()
+        if book.title in seen_out:
+            continue
+        seen_out.add(book.title)
+        reserve_copy = (
+            Book.query.filter_by(title_id=book.title_id)
+            .join(Cabinet)
+            .filter(Cabinet.type == "reserve", Book.qty_on_hand > 0)
+            .first()
+        )
         if reserve_copy:
             alerts.append({
                 "type": "low-stock",
@@ -355,9 +485,18 @@ def collect_replenish_alerts():
             })
 
     # 2️⃣ Books only exist in reserve cabinets
-    reserve_books = Book.query.join(Cabinet).filter(Cabinet.type == "reserve").all()
+    reserve_books = Book.query.join(Cabinet).filter(Cabinet.type == "reserve", Book.qty_on_hand > 0).all()
+    seen_reserve = set()
     for book in reserve_books:
-        display_copy = Book.query.filter_by(title=book.title).join(Cabinet).filter(Cabinet.type == "display").first()
+        if book.title in seen_reserve:
+            continue
+        seen_reserve.add(book.title)
+        display_copy = (
+            Book.query.filter_by(title_id=book.title_id)
+            .join(Cabinet)
+            .filter(Cabinet.type == "display", Book.qty_on_hand > 0)
+            .first()
+        )
         if not display_copy:
             alerts.append({
                 "type": "low-stock",
@@ -367,7 +506,11 @@ def collect_replenish_alerts():
     # 3️⃣ Empty cabinets (no books)
     empty_cabs = []
     for cab in Cabinet.query.all():
-        has_books = Book.query.filter_by(cabinet_id=cab.id).first()
+        has_books = (
+            Book.query.filter_by(cabinet_id=cab.id)
+            .filter(Book.qty_on_hand > 0)
+            .first()
+        )
         if not has_books:
             empty_cabs.append(cab.name)
 
@@ -417,25 +560,25 @@ def admin_dashboard():
     author_filter = request.args.get("author", "")
 
     # Base query
-    q = Book.query.join(Cabinet)
+    q = Book.query.join(Cabinet).join(BookTitle)
 
     if query:
-        q = q.filter(Book.title.contains(query))
+        q = q.filter(BookTitle.title.contains(query))
     if cabinet_filter:
         q = q.filter(Cabinet.name == cabinet_filter)
     if status_filter == "in":
-        q = q.filter(Book.in_stock.is_(True))
+        q = q.filter(Book.qty_on_hand > 0)
     elif status_filter == "out":
-        q = q.filter(Book.in_stock.is_(False))
+        q = q.filter(Book.qty_on_hand <= 0)
     if author_filter:
-        q = q.filter(Book.author.contains(author_filter))
+        q = q.filter(BookTitle.author.contains(author_filter))
 
     results = q.all()
 
     reference_books = []
     if results:
-        title_set = {book.title for book in results}
-        reference_books = Book.query.filter(Book.title.in_(title_set)).all()
+        title_ids = {book.title_id for book in results}
+        reference_books = Book.query.filter(Book.title_id.in_(title_ids)).all()
 
     grouped_books = build_grouped_book_entries(
         results,
@@ -460,7 +603,7 @@ def toggle_stock(book_id):
         return redirect(url_for("login"))
 
     book = Book.query.get_or_404(book_id)
-    book.in_stock = not book.in_stock
+    book.qty_on_hand = 0 if (book.qty_on_hand or 0) > 0 else 1
     db.session.commit()
     export_db_to_csv()  # save to CSV after toggle
     return redirect(url_for("admin_dashboard"))
@@ -484,43 +627,48 @@ def modify_cabinet(title):
     if not cabinet:
         return jsonify({"success": False, "message": f"櫃位「{cab_name}」不存在"})
 
+    title_obj = get_or_create_title(title)
+
     # add
     if action == "add":
-        existing = Book.query.filter_by(title=title, cabinet_id=cabinet.id).first()
+        existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet.id).first()
         if existing:
-            return jsonify({"success": False, "message": f"《{title}》 已存在於 {cab_name}"})
-        db.session.add(Book(title=title, in_stock=True, cabinet_id=cabinet.id))
+            existing.qty_on_hand += 1
+        else:
+            db.session.add(
+                Book(title_id=title_obj.id, cabinet_id=cabinet.id, qty_on_hand=1)
+            )
         db.session.commit()
         export_db_to_csv()
         return jsonify({"success": True, "message": f"已將《{title}》 新增至 {cab_name}"})
 
-        # remove
+    # remove
     elif action == "remove":
-        book = Book.query.filter_by(title=title, cabinet_id=cabinet.id).first()
+        book = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet.id).first()
         if not book:
             return jsonify({"success": False, "message": f"《{title}》 不存在於 {cab_name}"})
 
-        # 🚫 Guard: don't allow removing the last DISPLAY copy
-        # Count remaining DISPLAY copies of this title (excluding the one we’re deleting)
-        remaining_display = (
+        this_is_display = (cabinet.type or "").strip().lower() == "display"
+        other_display_count = (
             Book.query.join(Cabinet)
             .filter(
-                Book.title == title,
-                Book.id != book.id,
-                Cabinet.type == "display",
+                Book.title_id == title_obj.id,
+                Cabinet.type.ilike("display"),
+                Cabinet.id != cabinet.id,
             )
             .count()
         )
-        # Is the current cabinet a DISPLAY one?
-        this_is_display = (cabinet.type or "").strip().lower() == "display"
 
-        if this_is_display and remaining_display == 0:
+        if this_is_display and other_display_count <= 0:
             return jsonify({
                 "success": False,
                 "message": f"《{title}》於展示櫃將無任何存放！請先新增到另一展示櫃或改為僅切換庫存狀態。"
             }), 400
 
-        db.session.delete(book)
+        if book.qty_on_hand > 1:
+            book.qty_on_hand -= 1
+        else:
+            db.session.delete(book)
         db.session.commit()
         export_db_to_csv()
         return jsonify({"success": True, "message": f"已將《{title}》 從 {cab_name} 移除"})
@@ -642,7 +790,8 @@ def list_cabinet_books(cabinet_id):
     cabinet = Cabinet.query.get_or_404(cabinet_id)
     books = (
         Book.query.filter_by(cabinet_id=cabinet.id)
-        .order_by(Book.title.asc())
+        .join(BookTitle)
+        .order_by(BookTitle.title.asc())
         .all()
     )
     return jsonify(
@@ -663,7 +812,7 @@ def toggle_cabinet_book(cabinet_id, book_id):
         Book.query.filter_by(id=book_id, cabinet_id=cabinet_id)
         .first_or_404()
     )
-    book.in_stock = not book.in_stock
+    book.qty_on_hand = 0 if (book.qty_on_hand or 0) > 0 else 1
     db.session.commit()
     export_db_to_csv()
     return jsonify(
@@ -685,29 +834,35 @@ def add_book():
     if not title or not cabinet_id:
         return jsonify({"success": False, "message": "缺少書名或櫃位"}), 400
 
-    # query by id
-    existing = Book.query.filter_by(title=title, cabinet_id=cabinet_id).first()
+    cabinet = Cabinet.query.get(cabinet_id)
+    if not cabinet:
+        return jsonify({"success": False, "message": "櫃位不存在"}), 400
+
+    title_obj = get_or_create_title(title)
+
+    existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet_id).first()
 
     if existing:
-        # just mark it as restocked / increment if you track quantities
-        existing.in_stock = True
+        existing.qty_on_hand = (existing.qty_on_hand or 0) + max(amount, 1)
         db.session.commit()
+        export_db_to_csv()
         return jsonify({"success": True, "message": "已補貨"}), 200
     else:
         new_book = Book(
-            title=title,
+            title_id=title_obj.id,
             cabinet_id=cabinet_id,
-            in_stock=True,
+            qty_on_hand=max(amount, 1),
         )
         db.session.add(new_book)
         db.session.commit()
+        export_db_to_csv()
         return jsonify({"success": True, "message": "書籍已新增"}), 200
 
 
 @app.route("/cabinets/<int:cabinet_id>/books/<int:book_id>/move", methods=["PATCH"])
 def move_cabinet_book(cabinet_id, book_id):
     if not session.get("is_admin"):
-        return jsonify({"success": False, "message": "���n�J"}), 401
+        return jsonify({"success": False, "message": "未登入"}), 401
 
     book = (
         Book.query.filter_by(id=book_id, cabinet_id=cabinet_id)
@@ -734,11 +889,12 @@ def move_cabinet_book(cabinet_id, book_id):
     if target.id == cabinet_id:
         return jsonify({"success": False, "message": "目標櫃位與目前櫃位相同"}), 400
 
-    duplicate = Book.query.filter_by(title=book.title, cabinet_id=target.id).first()
+    duplicate = Book.query.filter_by(title_id=book.title_id, cabinet_id=target.id).first()
     if duplicate:
-        return jsonify({"success": False, "message": "該櫃位已存在同名書籍"}), 400
-
-    book.cabinet_id = target.id
+        duplicate.qty_on_hand = (duplicate.qty_on_hand or 0) + (book.qty_on_hand or 0)
+        db.session.delete(book)
+    else:
+        book.cabinet_id = target.id
     db.session.commit()
     export_db_to_csv()
     return jsonify(
@@ -780,7 +936,7 @@ def search():
     if not query:
         return redirect(url_for("home"))
 
-    results = Book.query.filter(Book.title.contains(query)).all()
+    results = Book.query.join(BookTitle).filter(BookTitle.title.contains(query)).all()
 
     grouped_books = build_grouped_book_entries(results)
 
@@ -796,7 +952,7 @@ def book_details(title):
     if not session.get("is_admin"):
         return redirect(url_for("login"))
 
-    books = Book.query.filter_by(title=title).all()
+    books = Book.query.join(BookTitle).filter(BookTitle.title == title).all()
     if not books:
         return jsonify({"error": "Book not found"}), 404
 
@@ -815,7 +971,7 @@ def book_details(title):
         {% for entry in entries %}
             <div class="modal-row">
             <span>{{ entry.cabinet }}</span>
-            <form action="{{ url_for('toggle_modal_stock', id=entry.id) }}" method="post" class="inline-form">
+            <form action="{{ url_for('toggle_modal_stock', id=entry.id) }}" method="post" class="inline-form" data-skip-confirm="true">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button type="submit" class="toggle-btn {{ entry.cls }}">
                 {{ entry.status }}
@@ -839,7 +995,7 @@ def book_card(title):
     if not session.get("is_admin"):
         return redirect(url_for("login"))
 
-    books = Book.query.filter_by(title=title).all()
+    books = Book.query.join(BookTitle).filter(BookTitle.title == title).all()
     if not books:
         return "<div class='card'>未找到此書</div>"
 
@@ -855,7 +1011,7 @@ def book_card(title):
       <div class="status-list">
         {% for entry in grouped %}
         <div class="status-row">
-          <span class="cab">📍 {{ entry.cabinet }}</span>
+          <span class="cab" data-cabinet="{{ entry.cabinet }}">📍 {{ entry.cabinet }}</span>
           <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
         </div>
         {% if entry.notes %}
@@ -878,7 +1034,7 @@ def toggle_modal_stock(id):
         return jsonify({"success": False, "message": "Unauthorized"}), 403
 
     book = Book.query.get_or_404(id)
-    book.in_stock = not book.in_stock
+    book.qty_on_hand = 0 if (book.qty_on_hand or 0) > 0 else 1
     db.session.commit()
     export_db_to_csv()
 

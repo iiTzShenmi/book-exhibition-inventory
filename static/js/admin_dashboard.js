@@ -40,7 +40,8 @@
     if (!card) return [];
     const seen = new Set();
     card.querySelectorAll('.status-row .cab').forEach(node => {
-      const label = node.textContent.trim();
+      const dataName = node.dataset.cabinet;
+      const label = dataName || node.textContent.replace(/^📍\s*/, '').trim();
       if (label) seen.add(label);
     });
     return Array.from(seen);
@@ -142,143 +143,64 @@
   }
 
   function renderCabinetManager(cabinets) {
-    const listEl = document.getElementById('cabinet-list');
-    if (!listEl) return;
+    const picker = document.getElementById('cabinet-picker');
 
     syncCabinetNames(cabinets);
 
-    listEl.innerHTML = '';
-    if (!cabinets.length) {
-      const empty = document.createElement('div');
-      empty.className = 'cabinet-empty';
-      empty.textContent = '尚未建立任何櫃位';
-      listEl.appendChild(empty);
+    if (picker) {
+      picker.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '請選擇書櫃...';
+      picker.appendChild(placeholder);
+      cabinets.forEach(cab => {
+        const opt = document.createElement('option');
+        opt.value = cab.id;
+        opt.textContent = `${cab.name}（${cab.type === 'display' ? '展示櫃' : '備書櫃'}）`;
+        picker.appendChild(opt);
+      });
+    }
+
+  }
+
+async function submitCabinetCreate(event) {
+  event.preventDefault();
+  const form = event.target;
+  const formData = new FormData(form);
+  const payload = {
+    name: formData.get('name'),
+    type: formData.get('type'),
+  };
+
+  if (!window.confirm(`新增櫃位「${payload.name || ''}」？`)) return;
+
+  try {
+    const res = await fetch('/cabinets', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...headersWithCsrf(),
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      showToast(data.message || '新增失敗', false);
       return;
     }
-
-    const groups = [
-      { type: 'display', title: '展示櫃', empty: '尚無展示櫃' },
-      { type: 'reserve', title: '備書櫃', empty: '尚無備書櫃' },
-    ];
-
-    groups.forEach(group => {
-      const section = document.createElement('div');
-      section.className = 'cabinet-group';
-      const heading = document.createElement('h5');
-      heading.textContent = group.title;
-      section.appendChild(heading);
-
-      const items = cabinets.filter(cab => cab.type === group.type);
-      if (!items.length) {
-        const empty = document.createElement('div');
-        empty.className = 'cabinet-empty';
-        empty.textContent = group.empty;
-        section.appendChild(empty);
-      } else {
-        items.forEach(cab => {
-          const row = document.createElement('div');
-          row.className = 'cabinet-row';
-          row.dataset.id = cab.id;
-          row.dataset.type = cab.type;
-
-          const manageBtn = document.createElement('button');
-          manageBtn.type = 'button';
-          manageBtn.className = 'btn btn--outline btn--sm';
-          manageBtn.dataset.cabinetAction = 'manage-books';
-          manageBtn.textContent = '查看書籍';
-
-          const renameBtn = document.createElement('button');
-          renameBtn.type = 'button';
-          renameBtn.className = 'btn btn--secondary btn--sm';
-          renameBtn.dataset.cabinetAction = 'rename';
-          renameBtn.textContent = '重新命名';
-
-          const toggleBtn = document.createElement('button');
-          toggleBtn.type = 'button';
-          toggleBtn.className = 'btn btn--primary btn--sm';
-          toggleBtn.dataset.cabinetAction = 'toggle-type';
-          toggleBtn.textContent = cab.type === 'display' ? '改為備書' : '改為展示';
-
-          const deleteBtn = document.createElement('button');
-          deleteBtn.type = 'button';
-          deleteBtn.className = 'btn btn--danger btn--sm';
-          deleteBtn.dataset.cabinetAction = 'delete';
-          deleteBtn.textContent = '刪除';
-          deleteBtn.disabled = cab.book_count > 0;
-          if (deleteBtn.disabled) deleteBtn.title = '櫃位尚有書籍，無法刪除';
-
-          const nameRow = document.createElement('div');
-          nameRow.className = 'cabinet-info-row';
-          const nameText = document.createElement('span');
-          nameText.className = 'cabinet-info-text cabinet-name';
-          nameText.textContent = `名稱：${cab.name}`;
-          nameRow.appendChild(nameText);
-          nameRow.appendChild(renameBtn);
-
-          const typeRow = document.createElement('div');
-          typeRow.className = 'cabinet-info-row';
-          const typeText = document.createElement('span');
-          typeText.className = 'cabinet-info-text cabinet-type';
-          typeText.textContent = `類型：${cab.type === 'display' ? '展示櫃' : '備書櫃'}`;
-          typeRow.appendChild(typeText);
-          typeRow.appendChild(toggleBtn);
-
-          const countRow = document.createElement('div');
-          countRow.className = 'cabinet-info-row';
-          const countText = document.createElement('span');
-          countText.className = 'cabinet-info-text cabinet-count';
-          countText.textContent = `書籍數：${cab.book_count} 本`;
-          countRow.appendChild(countText);
-          countRow.appendChild(manageBtn);
-
-          const footerRow = document.createElement('div');
-          footerRow.className = 'cabinet-row__footer';
-          footerRow.appendChild(deleteBtn);
-
-          row.appendChild(nameRow);
-          row.appendChild(typeRow);
-          row.appendChild(countRow);
-          row.appendChild(footerRow);
-          section.appendChild(row);
-        });
-      }
-
-      listEl.appendChild(section);
-    });
+    const newCabinetId = data.cabinet?.id;
+    const undoCreate = newCabinetId
+      ? () => fetch(`/cabinets/${newCabinetId}`, { method: 'DELETE', headers: headersWithCsrf() })
+      : null;
+    showToast('已新增櫃位', true, undoCreate);
+    form.reset();
+    form.querySelector('select[name="type"]').value = payload.type || 'reserve';
+    await loadCabinets();
+  } catch (err) {
+    console.error(err);
+    showToast('新增失敗', false);
   }
-
-  async function submitCabinetCreate(event) {
-    event.preventDefault();
-    const form = event.target;
-    const formData = new FormData(form);
-    const payload = {
-      name: formData.get('name'),
-      type: formData.get('type'),
-    };
-
-    try {
-      const res = await fetch('/cabinets', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headersWithCsrf(),
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        showToast(data.message || '新增失敗', false);
-        return;
-      }
-      showToast('已新增櫃位', true);
-      form.reset();
-      form.querySelector('select[name="type"]').value = payload.type || 'reserve';
-      await loadCabinets();
-    } catch (err) {
-      console.error(err);
-      showToast('新增失敗', false);
-    }
-  }
+}
 
   async function refreshBookCardsForTitles(titles) {
     if (!Array.isArray(titles) || !titles.length) return;
@@ -287,47 +209,51 @@
     }
   }
 
-  async function requestCabinetUpdate(id, payload, successMessage) {
-    try {
-      const res = await fetch(`/cabinets/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
+async function requestCabinetUpdate(id, payload, successMessage, undoHandler = null) {
+  try {
+    const res = await fetch(`/cabinets/${id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
           ...headersWithCsrf(),
         },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        showToast(data.message || '更新失敗', false);
-        return;
-      }
-      showToast(successMessage || '已更新', true);
-      await refreshBookCardsForTitles(data.affected_titles);
-      await loadCabinets();
-    } catch (err) {
-      console.error(err);
-      showToast('更新失敗', false);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      showToast(data.message || '更新失敗', false);
+      return;
     }
+    showToast(successMessage || '已更新', true, undoHandler);
+    await refreshBookCardsForTitles(data.affected_titles);
+    await loadCabinets();
+  } catch (err) {
+    console.error(err);
+    showToast('更新失敗', false);
   }
+}
 
-  async function promptRenameCabinet(id) {
-    const cabinet = cabinetCache.find(cab => cab.id === id);
-    if (!cabinet) return;
-    const currentName = cabinet.name;
-    const nextName = window.prompt('輸入新名稱', currentName);
-    if (nextName === null) return;
-    const trimmed = nextName.trim();
-    if (!trimmed || trimmed === currentName) return;
-    await requestCabinetUpdate(id, { name: trimmed }, '名稱已更新');
-  }
+async function promptRenameCabinet(id) {
+  const cabinet = cabinetCache.find(cab => cab.id === id);
+  if (!cabinet) return;
+  const currentName = cabinet.name;
+  const nextName = window.prompt('輸入新名稱', currentName);
+  if (nextName === null) return;
+  const trimmed = nextName.trim();
+  if (!trimmed || trimmed === currentName) return;
+  if (!window.confirm(`確定將櫃位「${currentName}」改名為「${trimmed}」？`)) return;
+  const undo = () => requestCabinetUpdate(id, { name: currentName }, '名稱已還原', null);
+  await requestCabinetUpdate(id, { name: trimmed }, '名稱已更新', undo);
+}
 
-  async function toggleCabinetType(id) {
-    const cabinet = cabinetCache.find(cab => cab.id === id);
-    if (!cabinet) return;
-    const nextType = cabinet.type === 'display' ? 'reserve' : 'display';
-    await requestCabinetUpdate(id, { type: nextType }, `已改為${nextType === 'display' ? '展示櫃' : '備書櫃'}`);
-  }
+async function toggleCabinetType(id) {
+  const cabinet = cabinetCache.find(cab => cab.id === id);
+  if (!cabinet) return;
+  const nextType = cabinet.type === 'display' ? 'reserve' : 'display';
+  if (!window.confirm(`確定將「${cabinet.name}」改為${nextType === 'display' ? '展示櫃' : '備書櫃'}？`)) return;
+  const undo = () => requestCabinetUpdate(id, { type: cabinet.type }, '已還原類型', null);
+  await requestCabinetUpdate(id, { type: nextType }, `已改為${nextType === 'display' ? '展示櫃' : '備書櫃'}`, undo);
+}
 
   async function deleteCabinet(id) {
     const cabinet = cabinetCache.find(cab => cab.id === id);
@@ -402,7 +328,8 @@
 
         const statusSpan = document.createElement('span');
         statusSpan.className = `cabinet-book-status ${book.in_stock ? 'status--in' : 'status--out'}`;
-        statusSpan.textContent = book.in_stock ? '在庫' : '缺貨';
+        const qtyLabel = typeof book.qty_on_hand === 'number' ? `（${book.qty_on_hand}）` : '';
+        statusSpan.textContent = book.in_stock ? `在庫${qtyLabel}` : '缺貨';
 
         const actions = document.createElement('div');
         actions.className = 'cabinet-book-actions';
@@ -554,23 +481,24 @@
     pendingMove = null;
   }
 
-  async function submitMoveBook(event) {
-    event.preventDefault();
-    const targetSelect = document.getElementById('move-book-target');
-    const bookInput = document.getElementById('move-book-id');
-    const sourceInput = document.getElementById('move-source-cabinet-id');
+async function submitMoveBook(event) {
+  event.preventDefault();
+  const targetSelect = document.getElementById('move-book-target');
+  const bookInput = document.getElementById('move-book-id');
+  const sourceInput = document.getElementById('move-source-cabinet-id');
     if (!targetSelect || !bookInput || !sourceInput) return;
 
     const targetId = Number(targetSelect.value);
     const bookId = Number(bookInput.value);
     const sourceId = Number(sourceInput.value);
 
-    if (!targetId) {
-      showToast('請選擇目標櫃位', false);
-      return;
-    }
+  if (!targetId) {
+    showToast('請選擇目標櫃位', false);
+    return;
+  }
 
-    const movingTitle = pendingMove?.title || '';
+  const movingTitle = pendingMove?.title || '';
+    if (!window.confirm(`確定將「${movingTitle}」移動到所選櫃位？`)) return;
 
     try {
       const res = await fetch(`/cabinets/${sourceId}/books/${bookId}/move`, {
@@ -633,6 +561,118 @@
     if (overlay) overlay.style.display = 'none';
   }
 
+  function openCabinetActionModal(mode, cabinet) {
+    const overlay = document.getElementById('cabinet-action-overlay');
+    const box = document.getElementById('cabinet-action-box');
+    if (!overlay || !box || !cabinet) return;
+
+    const closeBtn = `<button type="button" class="btn btn--secondary btn--sm" data-close-action>取消</button>`;
+
+    if (mode === 'rename') {
+      box.innerHTML = `
+        <div class="modal-header">
+          <h4>重新命名書櫃</h4>
+          <button type="button" class="btn btn--secondary btn--sm" data-close-action>關閉</button>
+        </div>
+        <form id="rename-cabinet-form" class="field">
+          <label>新名稱</label>
+          <input type="text" name="name" value="${cabinet.name || ''}" required>
+          <div class="actions btn-group" style="margin-top:10px;">
+            <button type="submit" class="btn btn--primary btn--sm">儲存</button>
+            ${closeBtn}
+          </div>
+        </form>
+      `;
+    } else if (mode === 'toggle') {
+      box.innerHTML = `
+        <div class="modal-header">
+          <h4>更改書櫃類別</h4>
+          <button type="button" class="btn btn--secondary btn--sm" data-close-action>關閉</button>
+        </div>
+        <form id="type-cabinet-form" class="field">
+          <label>類型</label>
+          <select name="type" required>
+            <option value="display" ${cabinet.type === 'display' ? 'selected' : ''}>展示櫃</option>
+            <option value="reserve" ${cabinet.type === 'reserve' ? 'selected' : ''}>備書櫃</option>
+          </select>
+          <div class="actions btn-group" style="margin-top:10px;">
+            <button type="submit" class="btn btn--primary btn--sm">儲存</button>
+            ${closeBtn}
+          </div>
+        </form>
+      `;
+    } else if (mode === 'delete') {
+      box.innerHTML = `
+        <div class="modal-header">
+          <h4>刪除書櫃</h4>
+          <button type="button" class="btn btn--secondary btn--sm" data-close-action>關閉</button>
+        </div>
+        <p>確定要刪除「${cabinet.name}」嗎？此動作無法復原。</p>
+        <div class="actions btn-group">
+          <button type="button" class="btn btn--danger btn--sm" data-confirm-delete="${cabinet.id}">刪除</button>
+          ${closeBtn}
+        </div>
+      `;
+    } else {
+      return;
+    }
+
+    overlay.style.display = 'flex';
+
+    const closeButtons = box.querySelectorAll('[data-close-action]');
+    closeButtons.forEach(btn => btn.addEventListener('click', closeCabinetActionModal));
+
+    const renameForm = document.getElementById('rename-cabinet-form');
+    if (renameForm) {
+      renameForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const newName = renameForm.querySelector('input[name="name"]').value.trim();
+        if (!newName || newName === cabinet.name) return;
+        const undo = () => requestCabinetUpdate(cabinet.id, { name: cabinet.name }, '名稱已還原', null);
+        await requestCabinetUpdate(cabinet.id, { name: newName }, '名稱已更新', undo);
+        closeCabinetActionModal();
+      });
+    }
+
+    const typeForm = document.getElementById('type-cabinet-form');
+    if (typeForm) {
+      typeForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const newType = typeForm.querySelector('select[name="type"]').value;
+        if (!newType || newType === cabinet.type) return;
+        const undo = () => requestCabinetUpdate(cabinet.id, { type: cabinet.type }, '已還原類型', null);
+        await requestCabinetUpdate(cabinet.id, { type: newType }, `已改為${newType === 'display' ? '展示櫃' : '備書櫃'}`, undo);
+        closeCabinetActionModal();
+      });
+    }
+
+    const deleteBtn = box.querySelector('[data-confirm-delete]');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => {
+        deleteCabinet(cabinet.id);
+        closeCabinetActionModal();
+      });
+    }
+  }
+
+  function closeCabinetActionModal() {
+    const overlay = document.getElementById('cabinet-action-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function handleCabinetAction(action, cabinet) {
+    if (!cabinet) return;
+    if (action === 'view') {
+      openCabinetBooks(cabinet.id);
+    } else if (action === 'rename') {
+      openCabinetActionModal('rename', cabinet);
+    } else if (action === 'toggle-type') {
+      openCabinetActionModal('toggle', cabinet);
+    } else if (action === 'delete') {
+      openCabinetActionModal('delete', cabinet);
+    }
+  }
+
   function handleCabinetListClick(event) {
     const button = event.target.closest('[data-cabinet-action]');
     if (!button) return;
@@ -641,15 +681,9 @@
     const id = Number(row.dataset.id);
     if (!id) return;
     const action = button.dataset.cabinetAction;
-    if (action === 'manage-books') {
-      openCabinetBooks(id);
-    } else if (action === 'rename') {
-      promptRenameCabinet(id);
-    } else if (action === 'toggle-type') {
-      toggleCabinetType(id);
-    } else if (action === 'delete') {
-      deleteCabinet(id);
-    }
+    const cab = cabinetCache.find(c => c.id === id);
+    if (!cab) return;
+    handleCabinetAction(action, cab);
   }
 
   function openAddBookModal(prefillTitle) {
@@ -683,12 +717,14 @@
     }
   }
 
-  function bindCabinetForm() {
-    const cabinetForm = document.getElementById('cabinet-form');
-    if (!cabinetForm) return;
-    cabinetForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-      const data = new FormData(this);
+function bindCabinetForm() {
+  const cabinetForm = document.getElementById('cabinet-form');
+  if (!cabinetForm) return;
+  cabinetForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+      const title = currentTitle || '';
+      if (!window.confirm(`要變更《${title}》的櫃位嗎？`)) return;
+    const data = new FormData(this);
       fetch(this.action, {
         method: 'POST',
         body: data,
@@ -712,22 +748,27 @@
     });
   }
 
-  function bindInlineForms() {
-    document.addEventListener('submit', e => {
-      if (!e.target.matches('.inline-form')) return;
-      e.preventDefault();
-      const form = e.target;
+function bindInlineForms() {
+  document.addEventListener('submit', e => {
+    if (!e.target.matches('.inline-form')) return;
+    e.preventDefault();
+    const form = e.target;
 
-      if (!form.action || form.action === '[object HTMLSelectElement]') {
-        console.warn('Invalid form action:', form.action);
-        showToast('無效的表單路徑', false);
-        return;
-      }
+    if (!form.action || form.action === '[object HTMLSelectElement]') {
+      console.warn('Invalid form action:', form.action);
+      showToast('無效的表單路徑', false);
+      return;
+    }
 
-      const formData = new FormData(form);
-      fetch(form.action, {
-        method: 'POST',
-        headers: headersWithCsrf(),
+    if (form.dataset.skipConfirm !== 'true') {
+      const label = form.dataset.confirmLabel || '確認要送出嗎？';
+      if (!window.confirm(label)) return;
+    }
+
+    const formData = new FormData(form);
+    fetch(form.action, {
+      method: 'POST',
+      headers: headersWithCsrf(),
         body: formData,
       })
         .then(r => r.json())
@@ -778,6 +819,13 @@
         if (event.target === moveOverlay) closeMoveBookModal();
       });
     }
+
+    const actionOverlay = document.getElementById('cabinet-action-overlay');
+    if (actionOverlay) {
+      actionOverlay.addEventListener('click', event => {
+        if (event.target === actionOverlay) closeCabinetActionModal();
+      });
+    }
   }
 
   function bindKeyboardShortcuts() {
@@ -788,6 +836,7 @@
         closeCabinetManager();
         closeCabinetModal();
         closeMoveBookModal();
+        closeCabinetActionModal();
       }
     });
   }
@@ -798,6 +847,10 @@
       addBookForm.addEventListener('submit', async e => {
         e.preventDefault();
         const fd = new FormData(addBookForm);
+        const bookTitle = fd.get('title') || '';
+        const cabId = fd.get('cabinet_id');
+        const amount = fd.get('amount') || '1';
+        if (!window.confirm(`新增《${bookTitle}》到櫃位(${cabId || '未選'})，數量 ${amount}？`)) return;
 
         try {
           const res = await fetch(addBookForm.action || '/add_book', {
@@ -831,6 +884,28 @@
 
     const cabinetList = document.getElementById('cabinet-list');
     if (cabinetList) cabinetList.addEventListener('click', handleCabinetListClick);
+
+    const picker = document.getElementById('cabinet-picker');
+    const actionButtons = [
+      { id: 'cab-action-view', action: 'view' },
+      { id: 'cab-action-rename', action: 'rename' },
+      { id: 'cab-action-toggle', action: 'toggle-type' },
+      { id: 'cab-action-delete', action: 'delete' },
+    ];
+    actionButtons.forEach(cfg => {
+      const btn = document.getElementById(cfg.id);
+      if (btn && picker) {
+        btn.addEventListener('click', () => {
+          const cabId = Number(picker.value);
+          if (!cabId) {
+            showToast('請先選擇書櫃', false);
+            return;
+          }
+          const cab = cabinetCache.find(c => c.id === cabId);
+          handleCabinetAction(cfg.action, cab);
+        });
+      }
+    });
 
     const cabinetBooksList = document.getElementById('cabinet-books-list');
     if (cabinetBooksList) cabinetBooksList.addEventListener('click', handleCabinetBooksClick);

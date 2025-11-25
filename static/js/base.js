@@ -2,16 +2,39 @@
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   window.csrfToken = csrfToken;
 
-  function showToast(message, ok = true) {
+  function showToast(message, ok = true, undoHandler = null) {
     const toast = document.createElement('div');
     toast.className = `toast ${ok ? 'success' : 'error'}`;
-    toast.textContent = message;
+
+    const body = document.createElement('div');
+    body.className = 'toast__body';
+    body.textContent = message;
+    toast.appendChild(body);
+
+    if (ok && typeof undoHandler === 'function') {
+      const actions = document.createElement('div');
+      actions.className = 'toast__actions';
+      const undoBtn = document.createElement('button');
+      undoBtn.type = 'button';
+      undoBtn.className = 'toast__undo';
+      undoBtn.textContent = 'Undo';
+      undoBtn.addEventListener('click', () => {
+        if (typeof undoHandler === 'function') {
+          undoHandler();
+        }
+        toast.remove();
+      });
+      actions.appendChild(undoBtn);
+      toast.appendChild(actions);
+    }
+
     document.body.appendChild(toast);
     setTimeout(() => toast.classList.add('show'), 10);
+    const duration = ok ? 6000 : 3500;
     setTimeout(() => {
       toast.classList.remove('show');
       setTimeout(() => toast.remove(), 300);
-    }, 2500);
+    }, duration);
   }
 
   window.showToast = showToast;
@@ -158,6 +181,7 @@
 
   window.openBookModal = openBookModal;
   window.closeBookModal = closeBookModal;
+  window.closeModal = closeBookModal;
 
   function handleNotificationTabs(event) {
     const tab = event.target.closest('.notif-tab');
