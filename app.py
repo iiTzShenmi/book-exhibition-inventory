@@ -28,6 +28,7 @@ DATA_DIR = os.path.join(BASE_DIR, "database")
 os.makedirs(DATA_DIR, exist_ok=True)
 CSV_PATH = os.path.join(DATA_DIR, "inventory.csv")
 DB_PATH = os.path.join(DATA_DIR, "inventory.db")
+AUTO_GIT_PUSH = 1
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 os.makedirs(BACKUP_DIR, exist_ok=True)
 LAST_BACKUP_META = os.path.join(BACKUP_DIR, "last_auto_backup.json")
