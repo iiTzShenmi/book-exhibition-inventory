@@ -50,3 +50,14 @@ class Inventory(db.Model):
 
 # Backward compatibility alias for existing imports
 Book = Inventory
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    actor = db.Column(db.String(100), nullable=False, default="system")
+    action = db.Column(db.String(100), nullable=False)
+    target = db.Column(db.String(255), nullable=True)
+    details = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

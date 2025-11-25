@@ -16,7 +16,7 @@ from flask import (
     session,
     url_for,
 )
-from models import db, Book, Cabinet, BookTitle, Inventory
+from models import db, Book, Cabinet, BookTitle, Inventory, AuditLog
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "database")
@@ -249,6 +249,21 @@ def get_or_create_title(title, author=None):
 
 
 LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "1"))
+
+
+def current_actor():
+    return session.get("admin_user") or ADMIN_USERNAME or "admin"
+
+
+def log_action(action, target=None, details=None):
+    """Persist a simple audit record."""
+    entry = AuditLog(
+        actor=current_actor(),
+        action=action,
+        target=target,
+        details=details,
+    )
+    db.session.add(entry)
 
 
 def initialize_app():
@@ -589,12 +604,18 @@ def admin_dashboard():
 
     all_cabinets = Cabinet.query.order_by(Cabinet.name).all()
     cabinets_payload = [cabinet_to_dict(cab) for cab in all_cabinets]
+    audit_logs = (
+        AuditLog.query.order_by(AuditLog.created_at.desc())
+        .limit(20)
+        .all()
+    )
 
     return render_template(
         "admin_dashboard.html",
         grouped_books=grouped_books,
         all_cabinets=all_cabinets,
         cabinets_payload=cabinets_payload,
+        audit_logs=audit_logs,
     )
 
 @app.route("/toggle/<int:book_id>", methods=["POST"])
@@ -604,6 +625,8 @@ def toggle_stock(book_id):
 
     book = Book.query.get_or_404(book_id)
     book.qty_on_hand = 0 if (book.qty_on_hand or 0) > 0 else 1
+    db.session.commit()
+    log_action("toggle_stock", target=book.title, details=f"qty={book.qty_on_hand}")
     db.session.commit()
     export_db_to_csv()  # save to CSV after toggle
     return redirect(url_for("admin_dashboard"))
@@ -623,6 +646,8 @@ def modify_cabinet(title):
         cabinet = Cabinet(name=cab_name)
         db.session.add(cabinet)
         db.session.commit()
+        log_action("create_cabinet_from_book", target=cab_name, details=f"title={title}")
+        db.session.commit()
 
     if not cabinet:
         return jsonify({"success": False, "message": f"櫃位「{cab_name}」不存在"})
@@ -632,15 +657,29 @@ def modify_cabinet(title):
     # add
     if action == "add":
         existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet.id).first()
+        book_id = None
         if existing:
             existing.qty_on_hand += 1
+            book_id = existing.id
         else:
-            db.session.add(
-                Book(title_id=title_obj.id, cabinet_id=cabinet.id, qty_on_hand=1)
-            )
+            new_book = Book(title_id=title_obj.id, cabinet_id=cabinet.id, qty_on_hand=1)
+            db.session.add(new_book)
+            db.session.flush()
+            book_id = new_book.id
+        db.session.commit()
+        log_action("add_cabinet_to_title", target=title, details=f"cabinet={cab_name}")
         db.session.commit()
         export_db_to_csv()
-        return jsonify({"success": True, "message": f"已將《{title}》 新增至 {cab_name}"})
+        return jsonify({
+            "success": True,
+            "message": f"已將《{title}》 新增至 {cab_name}",
+            "action": "add",
+            "book_id": book_id,
+            "cabinet_id": cabinet.id,
+            "cabinet_name": cab_name,
+            "title": title,
+            "qty_change": 1,
+        })
 
     # remove
     elif action == "remove":
@@ -665,13 +704,24 @@ def modify_cabinet(title):
                 "message": f"《{title}》於展示櫃將無任何存放！請先新增到另一展示櫃或改為僅切換庫存狀態。"
             }), 400
 
+        qty_removed = book.qty_on_hand or 1
         if book.qty_on_hand > 1:
             book.qty_on_hand -= 1
         else:
             db.session.delete(book)
         db.session.commit()
+        log_action("remove_cabinet_from_title", target=title, details=f"cabinet={cab_name}")
+        db.session.commit()
         export_db_to_csv()
-        return jsonify({"success": True, "message": f"已將《{title}》 從 {cab_name} 移除"})
+        return jsonify({
+            "success": True,
+            "message": f"已將《{title}》 從 {cab_name} 移除",
+            "action": "remove",
+            "cabinet_id": cabinet.id,
+            "cabinet_name": cab_name,
+            "title": title,
+            "qty_removed": qty_removed,
+        })
 
 # 🔍 Search function
 @app.route("/cabinets", methods=["GET"])
@@ -709,6 +759,8 @@ def create_cabinet():
 
     cabinet = Cabinet(name=name, type=cab_type)
     db.session.add(cabinet)
+    db.session.commit()
+    log_action("create_cabinet", target=name, details=f"type={cab_type}")
     db.session.commit()
     export_db_to_csv()
     return jsonify({
@@ -757,6 +809,12 @@ def update_cabinet(cabinet_id):
         })
 
     db.session.commit()
+    log_action(
+        "update_cabinet",
+        target=cabinet.name,
+        details=f"name={cabinet.name},type={cabinet.type}",
+    )
+    db.session.commit()
     export_db_to_csv()
     affected_titles = sorted({book.title for book in cabinet.books})
     return jsonify({
@@ -775,10 +833,13 @@ def delete_cabinet(cabinet_id):
     if cabinet.books:
         return jsonify({"success": False, "message": "櫃位仍有書籍，無法刪除"}), 400
 
+    deleted_payload = {"name": cabinet.name, "type": cabinet.type}
     db.session.delete(cabinet)
     db.session.commit()
+    log_action("delete_cabinet", target=cabinet.name)
+    db.session.commit()
     export_db_to_csv()
-    return jsonify({"success": True, "cabinet_id": cabinet_id})
+    return jsonify({"success": True, "cabinet_id": cabinet_id, "deleted": deleted_payload})
 
 
 
@@ -814,6 +875,8 @@ def toggle_cabinet_book(cabinet_id, book_id):
     )
     book.qty_on_hand = 0 if (book.qty_on_hand or 0) > 0 else 1
     db.session.commit()
+    log_action("toggle_cabinet_book", target=book.title, details=f"cabinet_id={cabinet_id},qty={book.qty_on_hand}")
+    db.session.commit()
     export_db_to_csv()
     return jsonify(
         {
@@ -822,6 +885,40 @@ def toggle_cabinet_book(cabinet_id, book_id):
             "affected_titles": [book.title],
         }
     )
+
+
+@app.route("/cabinets/<int:cabinet_id>/books/<int:book_id>/adjust", methods=["PATCH"])
+def adjust_cabinet_book_quantity(cabinet_id, book_id):
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "未登入"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        delta = int(payload.get("delta", 0))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "delta 必須為數字"}), 400
+
+    book = (
+        Book.query.filter_by(id=book_id, cabinet_id=cabinet_id)
+        .first_or_404()
+    )
+
+    next_qty = (book.qty_on_hand or 0) + delta
+    if next_qty <= 0:
+        title = book.title
+        db.session.delete(book)
+        db.session.commit()
+        log_action("adjust_quantity_delete", target=title, details=f"cabinet_id={cabinet_id}")
+        db.session.commit()
+        export_db_to_csv()
+        return jsonify({"success": True, "book_id": book_id, "affected_titles": [title]})
+
+    book.qty_on_hand = next_qty
+    db.session.commit()
+    log_action("adjust_quantity", target=book.title, details=f"cabinet_id={cabinet_id},delta={delta},qty={next_qty}")
+    db.session.commit()
+    export_db_to_csv()
+    return jsonify({"success": True, "book": book_to_dict(book), "affected_titles": [book.title]})
 
 @app.route("/add_book", methods=["POST"])
 def add_book():
@@ -842,11 +939,22 @@ def add_book():
 
     existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet_id).first()
 
+    created = False
     if existing:
         existing.qty_on_hand = (existing.qty_on_hand or 0) + max(amount, 1)
         db.session.commit()
+        log_action("restock_book", target=title_obj.title, details=f"cabinet_id={cabinet_id},amount={amount}")
+        db.session.commit()
         export_db_to_csv()
-        return jsonify({"success": True, "message": "已補貨"}), 200
+        return jsonify({
+            "success": True,
+            "message": "已補貨",
+            "book_id": existing.id,
+            "cabinet_id": cabinet_id,
+            "title": title_obj.title,
+            "amount_added": max(amount, 1),
+            "created": False,
+        }), 200
     else:
         new_book = Book(
             title_id=title_obj.id,
@@ -855,8 +963,19 @@ def add_book():
         )
         db.session.add(new_book)
         db.session.commit()
+        created = True
+        log_action("add_book", target=title_obj.title, details=f"cabinet_id={cabinet_id},amount={amount}")
+        db.session.commit()
         export_db_to_csv()
-        return jsonify({"success": True, "message": "書籍已新增"}), 200
+        return jsonify({
+            "success": True,
+            "message": "書籍已新增",
+            "book_id": new_book.id,
+            "cabinet_id": cabinet_id,
+            "title": title_obj.title,
+            "amount_added": max(amount, 1),
+            "created": True,
+        }), 200
 
 
 @app.route("/cabinets/<int:cabinet_id>/books/<int:book_id>/move", methods=["PATCH"])
@@ -893,8 +1012,11 @@ def move_cabinet_book(cabinet_id, book_id):
     if duplicate:
         duplicate.qty_on_hand = (duplicate.qty_on_hand or 0) + (book.qty_on_hand or 0)
         db.session.delete(book)
+        book = duplicate
     else:
         book.cabinet_id = target.id
+    db.session.commit()
+    log_action("move_book", target=book.title, details=f"{cabinet_id} -> {target.id}")
     db.session.commit()
     export_db_to_csv()
     return jsonify(
@@ -918,7 +1040,10 @@ def remove_cabinet_book(cabinet_id, book_id):
         .first_or_404()
     )
     title = book.title
+    qty_removed = book.qty_on_hand or 1
     db.session.delete(book)
+    db.session.commit()
+    log_action("remove_book_from_cabinet", target=title, details=f"cabinet_id={cabinet_id}")
     db.session.commit()
     export_db_to_csv()
     return jsonify(
@@ -926,6 +1051,9 @@ def remove_cabinet_book(cabinet_id, book_id):
             "success": True,
             "book_id": book_id,
             "affected_titles": [title],
+            "title": title,
+            "cabinet_id": cabinet_id,
+            "qty_removed": qty_removed,
         }
     )
 
@@ -1036,6 +1164,8 @@ def toggle_modal_stock(id):
     book = Book.query.get_or_404(id)
     book.qty_on_hand = 0 if (book.qty_on_hand or 0) > 0 else 1
     db.session.commit()
+    log_action("toggle_modal_stock", target=book.title, details=f"qty={book.qty_on_hand}")
+    db.session.commit()
     export_db_to_csv()
 
     # find which title this book belongs to, for JS to refresh that card
@@ -1058,6 +1188,7 @@ def login():
             and check_password_hash(ADMIN_PASSWORD_HASH, password)
         ):
             session["is_admin"] = True
+            session["admin_user"] = username or ADMIN_USERNAME
             session["csrf_token"] = secrets.token_urlsafe(32)
             return redirect(url_for("admin_dashboard"))
         else:

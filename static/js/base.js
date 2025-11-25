@@ -18,11 +18,17 @@
       undoBtn.type = 'button';
       undoBtn.className = 'toast__undo';
       undoBtn.textContent = 'Undo';
-      undoBtn.addEventListener('click', () => {
-        if (typeof undoHandler === 'function') {
-          undoHandler();
+      undoBtn.addEventListener('click', async () => {
+        try {
+          const result = await undoHandler();
+          toast.remove();
+          showToast(typeof result === 'string' ? result : '已還原上一筆操作', true);
+          
+        } catch (err) {
+          console.error('Undo failed', err);
+          toast.remove();
+          showToast('無法還原，請重試', false);
         }
-        toast.remove();
       });
       actions.appendChild(undoBtn);
       toast.appendChild(actions);

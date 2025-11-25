@@ -733,8 +733,53 @@ textarea:focus {
 
 .cabinet-actions-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 8px;
+  width: 100%;
+}
+
+.audit-card {
+  margin-top: 16px;
+}
+
+.audit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.audit-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  background: var(--surface-muted);
+}
+
+.audit-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-weight: 700;
+}
+
+.audit-action {
+  color: var(--primary);
+}
+
+.audit-target {
+  color: var(--text);
+}
+
+.audit-details {
+  display: flex;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.audit-note {
+  margin-top: 6px;
+  font-size: 0.95rem;
+  color: var(--text);
 }
 
 .cabinet-book-row {

@@ -190,7 +190,10 @@ async function submitCabinetCreate(event) {
     }
     const newCabinetId = data.cabinet?.id;
     const undoCreate = newCabinetId
-      ? () => fetch(`/cabinets/${newCabinetId}`, { method: 'DELETE', headers: headersWithCsrf() })
+      ? async () => {
+          await fetch(`/cabinets/${newCabinetId}`, { method: 'DELETE', headers: headersWithCsrf() });
+          await loadCabinets();
+        }
       : null;
     showToast('已新增櫃位', true, undoCreate);
     form.reset();
@@ -274,7 +277,21 @@ async function toggleCabinetType(id) {
         showToast(data.message || '刪除失敗', false);
         return;
       }
-      showToast(`櫃位「${cabinet.name}」已刪除`, true);
+      const deleted = data.deleted || {};
+      const undo = deleted?.name
+        ? async () => {
+            await fetch('/cabinets', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...headersWithCsrf(),
+              },
+              body: JSON.stringify({ name: deleted.name, type: deleted.type || 'display' }),
+            });
+            await loadCabinets();
+          }
+        : null;
+      showToast(`櫃位「${cabinet.name}」已刪除`, true, undo);
       await loadCabinets();
     } catch (err) {
       console.error(err);
@@ -410,7 +427,23 @@ async function toggleCabinetType(id) {
         showToast(data.message || '移除失敗', false);
         return;
       }
-      showToast('書籍已移出本櫃', true);
+      const qtyRemoved = Math.max(Number(data.qty_removed) || 1, 1);
+      const undo = async () => {
+        const fd = new FormData();
+        fd.append('title', data.title || bookName);
+        fd.append('cabinet_id', data.cabinet_id || cabinetId);
+        fd.append('amount', qtyRemoved);
+        fd.append('csrf_token', window.csrfToken || '');
+        await fetch('/add_book', {
+          method: 'POST',
+          body: fd,
+          headers: headersWithCsrf(),
+        });
+        await loadCabinets();
+        await loadCabinetBooks(cabinetId);
+        await refreshBookCardsForTitles(data.affected_titles || [data.title]);
+      };
+      showToast('書籍已移出本櫃', true, undo);
       await loadCabinets();
       await loadCabinetBooks(cabinetId);
       await refreshBookCardsForTitles(data.affected_titles);
@@ -481,11 +514,11 @@ async function toggleCabinetType(id) {
     pendingMove = null;
   }
 
-async function submitMoveBook(event) {
-  event.preventDefault();
-  const targetSelect = document.getElementById('move-book-target');
-  const bookInput = document.getElementById('move-book-id');
-  const sourceInput = document.getElementById('move-source-cabinet-id');
+  async function submitMoveBook(event) {
+    event.preventDefault();
+    const targetSelect = document.getElementById('move-book-target');
+    const bookInput = document.getElementById('move-book-id');
+    const sourceInput = document.getElementById('move-source-cabinet-id');
     if (!targetSelect || !bookInput || !sourceInput) return;
 
     const targetId = Number(targetSelect.value);
@@ -516,7 +549,24 @@ async function submitMoveBook(event) {
       }
 
       const label = movingTitle ? `「${movingTitle}」已移至新櫃位` : '書籍已移動';
-      showToast(label, true);
+      const movedBookId = data.book?.id || bookId;
+      const affectedTitles = data.affected_titles || (movingTitle ? [movingTitle] : []);
+      const undo = movedBookId
+        ? async () => {
+            await fetch(`/cabinets/${targetId}/books/${movedBookId}/move`, {
+              method: 'PATCH',
+              headers: {
+                'Content-Type': 'application/json',
+                ...headersWithCsrf(),
+              },
+              body: JSON.stringify({ target_cabinet_id: sourceId }),
+            });
+            await loadCabinets();
+            await loadCabinetBooks(sourceId);
+            await refreshBookCardsForTitles(affectedTitles);
+          }
+        : null;
+      showToast(label, true, undo);
 
       closeMoveBookModal();
       await loadCabinets();
@@ -717,14 +767,14 @@ async function submitMoveBook(event) {
     }
   }
 
-function bindCabinetForm() {
-  const cabinetForm = document.getElementById('cabinet-form');
-  if (!cabinetForm) return;
-  cabinetForm.addEventListener('submit', function (e) {
-    e.preventDefault();
+  function bindCabinetForm() {
+    const cabinetForm = document.getElementById('cabinet-form');
+    if (!cabinetForm) return;
+    cabinetForm.addEventListener('submit', function (e) {
+      e.preventDefault();
       const title = currentTitle || '';
       if (!window.confirm(`要變更《${title}》的櫃位嗎？`)) return;
-    const data = new FormData(this);
+      const data = new FormData(this);
       fetch(this.action, {
         method: 'POST',
         body: data,
@@ -733,7 +783,39 @@ function bindCabinetForm() {
         .then(async r => {
           try {
             const res = await r.json();
-            showToast(res.message, res.success);
+            let undo = null;
+            if (res.success && res.action === 'add') {
+              undo = async () => {
+                const fd = new FormData();
+                fd.append('csrf_token', window.csrfToken || '');
+                fd.append('add_or_remove', 'remove');
+                fd.append('cabinet', res.cabinet_name);
+                await fetch(`/modify_cabinet/${encodeURIComponent(res.title)}`, {
+                  method: 'POST',
+                  body: fd,
+                  headers: headersWithCsrf(),
+                });
+                await refreshBookCard(res.title);
+                await loadCabinets();
+              };
+            } else if (res.success && res.action === 'remove') {
+              const qty = Math.max(Number(res.qty_removed) || 1, 1);
+              undo = async () => {
+                const fd = new FormData();
+                fd.append('csrf_token', window.csrfToken || '');
+                fd.append('title', res.title);
+                fd.append('cabinet_id', res.cabinet_id);
+                fd.append('amount', qty);
+                await fetch('/add_book', {
+                  method: 'POST',
+                  body: fd,
+                  headers: headersWithCsrf(),
+                });
+                await refreshBookCard(res.title);
+                await loadCabinets();
+              };
+            }
+            showToast(res.message, res.success, undo);
             if (res.success) {
               if (currentTitle) await refreshBookCard(currentTitle);
               closeCabinetModal();
@@ -864,7 +946,23 @@ function bindInlineForms() {
             return;
           }
 
-          showToast(data.message || '新增完成', true);
+          const undoAmount = Math.max(Number(amount) || 1, 1);
+          const undo = data.book_id
+            ? async () => {
+                await fetch(`/cabinets/${data.cabinet_id}/books/${data.book_id}/adjust`, {
+                  method: 'PATCH',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...headersWithCsrf(),
+                  },
+                  body: JSON.stringify({ delta: -undoAmount }),
+                });
+                await loadCabinets();
+                if (data.title) await refreshBookCard(data.title);
+              }
+            : null;
+
+          showToast(data.message || '新增完成', true, undo);
 
           const title = fd.get('title');
           if (title && typeof refreshBookCard === 'function') {
