@@ -1,17 +1,24 @@
 {% extends 'base.html' %}
 {% block content %}
-<section id="admin-dashboard" data-all-cabinets='{{ cabinets_payload | tojson | safe }}'>
-  <h2>📦 管理面板</h2>
+<section id="admin-dashboard" class="admin-board" data-all-cabinets='{{ cabinets_payload | tojson | safe }}'>
+  <div class="section-head">
+    <p class="eyebrow">展場現場控管</p>
+    <h2>📦 管理面板</h2>
+    <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
+  </div>
 
-  <div class="grid">
+  <div class="grid admin-grid">
     {% for title, entries in grouped_books.items() %}
     <div class="card" id="card-{{ title }}">
-      <h3>{{ title }}</h3>
+      <div class="card__header">
+        <span class="chip chip--soft">書名</span>
+        <h3>{{ title }}</h3>
+      </div>
 
       <div class="status-list">
         {% for entry in entries %}
         <div class="status-row">
-          <span class="cab">{{ entry.cabinet }}</span>
+          <span class="cab">📍 {{ entry.cabinet }}</span>
           <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
         </div>
         {% if entry.notes %}
@@ -59,7 +66,7 @@
           </select>
         </div>
 
-        <div class="actions btn-group" style="margin-top:1rem;">
+        <div class="actions btn-group">
           <button type="submit" class="btn btn--primary">確定</button>
           <button type="button" class="btn btn--secondary" onclick="closeCabinetModal()">取消</button>
         </div>
@@ -89,7 +96,7 @@
           <label>數量（可選）</label>
           <input type="number" name="amount" min="1" value="1">
         </div>
-        <div class="actions btn-group" style="margin-top:1rem;">
+        <div class="actions btn-group">
           <button type="submit" class="btn btn--primary">新增</button>
           <button type="button" class="btn btn--secondary" onclick="closeAddBookModal()">取消</button>
         </div>
@@ -126,7 +133,7 @@
         <div id="cabinet-list" class="cabinet-list"></div>
       </div>
 
-      <div class="actions btn-group" style="margin-top:1.5rem;">
+      <div class="actions btn-group">
         <button type="button" class="btn btn--secondary" onclick="closeCabinetManager()">關閉</button>
       </div>
     </div>
@@ -158,7 +165,7 @@
             <option value="">請選擇櫃位</option>
           </select>
         </div>
-        <div class="actions btn-group" style="margin-top:1rem;">
+        <div class="actions btn-group">
           <button type="submit" class="btn btn--primary">移動</button>
           <button type="button" class="btn btn--secondary" onclick="closeMoveBookModal()">取消</button>
         </div>

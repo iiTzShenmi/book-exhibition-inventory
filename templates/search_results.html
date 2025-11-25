@@ -1,31 +1,44 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>搜尋結果：「{{ query }}」</h2>
-
-{% if grouped_books %}
-<div class="grid">
-  {% for title, entries in grouped_books.items() %}
-  <div class="card">
-    <h3>{{ title }}</h3>
-    <div class="status-list">
-      {% for entry in entries %}
-      <div class="status-row">
-        <span class="cab">📚{{ entry.cabinet }}</span>
-        <span class="stat">{{ entry.status }}</span>
-      </div>
-      {% if is_admin and entry.notes %}
-      {% for note in entry.notes %}
-      <div class="reserve-hint">
-        {{ note }}
-      </div>
-      {% endfor %}
-      {% endif %}
-      {% endfor %}
-    </div>
+<div class="results">
+  <div class="section-head">
+    <p class="eyebrow">搜尋結果</p>
+    <h2>「{{ query }}」的展場書籍</h2>
+    <p class="muted">展櫃與備書櫃同步呈現，即時掌握庫存狀態。</p>
   </div>
-  {% endfor %}
+
+  {% if grouped_books %}
+  <div class="grid results-grid">
+    {% for title, entries in grouped_books.items() %}
+    <article class="card result-card">
+      <div class="card__header">
+        <span class="chip chip--soft">展場書籍</span>
+        <h3>{{ title }}</h3>
+      </div>
+      <div class="status-list">
+        {% for entry in entries %}
+        <div class="status-row">
+          <span class="cab">📍 {{ entry.cabinet }}</span>
+          <span class="stat {{ entry.cls or '' }}">{{ entry.status }}</span>
+        </div>
+        {% if is_admin and entry.notes %}
+        {% for note in entry.notes %}
+        <div class="reserve-hint">
+          {{ note }}
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state__icon">🔎</div>
+    <p>找不到任何符合「{{ query }}」的書籍。</p>
+    <span class="muted">換個關鍵字，或嘗試書名的部分字詞。</span>
+  </div>
+  {% endif %}
 </div>
-{% else %}
-<p>找不到任何符合「{{ query }}」的書籍。</p>
-{% endif %}
 {% endblock %}

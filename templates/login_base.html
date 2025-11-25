@@ -4,74 +4,150 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ title or "管理登入" }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
   <style>
-    body {
-      font-family: 'Noto Sans TC', 'Inter', sans-serif;
-      background: #f4f6f8;
+    :root {
+      --card: #ffffff;
+      --border: #e5e8ef;
+      --muted: #5b6474;
+      --primary: #2f6bff;
+      --primary-dark: #1d4fff;
+    }
+    body.login-page {
       margin: 0;
+      min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      padding: 40px 16px;
+      background: radial-gradient(circle at 20% 20%, rgba(47, 107, 255, 0.08), transparent 30%),
+                  radial-gradient(circle at 80% 10%, rgba(255, 138, 92, 0.12), transparent 32%),
+                  #f5f7fb;
     }
-    .login-box {
-      background: white;
-      padding: 2.5rem 3rem;
-      border-radius: 12px;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
-      width: 320px;
-      text-align: center;
+    .login-frame {
+      position: relative;
+      width: min(420px, 100%);
     }
-    h2 {
-      margin-bottom: 1.5rem;
-      color: #3498db;
+    .login-glow {
+      position: absolute;
+      inset: -80px;
+      background: radial-gradient(circle, rgba(47, 107, 255, 0.16) 0%, transparent 55%);
+      filter: blur(40px);
+      z-index: 0;
     }
-    input[type="text"], input[type="password"] {
-      width: 100%;
-      padding: 10px;
-      margin: 8px 0;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      font-size: 1rem;
+    .login-card {
+      position: relative;
+      z-index: 1;
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid rgba(229, 232, 239, 0.9);
+      border-radius: 18px;
+      padding: 26px 24px;
+      box-shadow: 0 20px 60px rgba(18, 24, 38, 0.12);
+      display: grid;
+      gap: 16px;
     }
-    button {
-      background: linear-gradient(135deg, #4db3f7, #2c85d8);
-      color: #fff;
-      border: none;
-      padding: 12px 0;
-      width: 100%;
-      border-radius: 10px;
-      cursor: pointer;
-      font-size: 1rem;
-      font-weight: 600;
-      margin-top: 16px;
+    .login-brand {
+      display: inline-flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .login-brand__mark {
+      width: 46px;
+      height: 46px;
+      border-radius: 14px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.25s ease, box-shadow 0.25s ease;
-      box-shadow: 0 2px 4px rgba(77, 179, 247, 0.25);
+      background: linear-gradient(135deg, #2f6bff, #7ab8ff);
+      color: #fff;
+      font-size: 1.25rem;
+      box-shadow: 0 10px 25px rgba(47, 107, 255, 0.25);
     }
-    button:hover {
-      background: linear-gradient(135deg, #2c85d8, #1f6391);
-      box-shadow: 0 4px 8px rgba(44, 133, 216, 0.35);
+    .login-brand__text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-weight: 700;
     }
-    p.error {
-      color: red;
-      font-size: 0.9rem;
+    .login-title {
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .login-sub {
+      margin: 0;
+      color: var(--muted);
+    }
+    .login-form {
+      display: grid;
+      gap: 12px;
+    }
+    .form-field {
+      display: grid;
+      gap: 6px;
+    }
+    .form-field label {
+      font-weight: 600;
+      color: #121826;
+    }
+    .form-field input {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 1rem;
+      font-family: inherit;
+      background: #fff;
+    }
+    .form-field input:focus {
+      outline: 2px solid rgba(47, 107, 255, 0.18);
+      outline-offset: 1px;
+    }
+    .login-btn {
+      width: 100%;
+      padding: 13px 14px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 12px 30px rgba(47, 107, 255, 0.25);
+      transition: transform 0.15s ease, box-shadow 0.2s ease;
+    }
+    .login-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 34px rgba(47, 107, 255, 0.3);
+    }
+    .error {
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 79, 79, 0.1);
+      color: #c23d3d;
+      border: 1px solid rgba(255, 79, 79, 0.2);
+      font-size: 0.95rem;
     }
     .back-link {
-      display: inline-block;
-      margin-top: 1rem;
-      color: #3498db;
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 6px;
+      color: var(--muted);
+      font-weight: 600;
       text-decoration: none;
-      font-size: 0.9rem;
     }
     .back-link:hover {
-      text-decoration: underline;
+      color: var(--primary);
     }
   </style>
 </head>
-<body>
-  {% block content %}{% endblock %}
+<body class="login-page">
+  <div class="login-frame">
+    <div class="login-glow"></div>
+    <div class="login-card">
+      {% block content %}{% endblock %}
+    </div>
+  </div>
 </body>
 </html>

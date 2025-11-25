@@ -848,11 +848,14 @@ def book_card(title):
 
     return render_template_string("""
     <div class="card" id="card-{{ title }}">
-      <h3>{{ title }}</h3>
+      <div class="card__header">
+        <span class="chip chip--soft">書名</span>
+        <h3>{{ title }}</h3>
+      </div>
       <div class="status-list">
         {% for entry in grouped %}
         <div class="status-row">
-          <span class="cab">{{ entry.cabinet }}</span>
+          <span class="cab">📍 {{ entry.cabinet }}</span>
           <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
         </div>
         {% if entry.notes %}
@@ -865,7 +868,7 @@ def book_card(title):
       <div class="edit-btn-container btn-group">
         <button type="button" class="edit-btn btn--sm" onclick="openBookModal('{{ title }}')">編輯</button>
         <button type="button" class="mini-btn secondary btn--sm" onclick="openCabinetModal('{{ title }}')">新增 / 移除 櫃位</button>
-      </div>    
+      </div>
     </div>
     """, title=title, grouped=grouped)
 

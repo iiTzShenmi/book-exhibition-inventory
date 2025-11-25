@@ -1,20 +1,34 @@
 {% extends 'login_base.html' %}
 
 {% block content %}
-<div class="login-box">
-  <h2>Admin Login</h2>
+  <div class="login-brand">
+    <span class="login-brand__mark">📚</span>
+    <span class="login-brand__text">
+      <span class="eyebrow">Book Expo</span>
+      <span class="login-title">管理登入</span>
+    </span>
+  </div>
+
+  <div>
+    <p class="login-sub">登入以進入展場後台，維護庫存與櫃位。</p>
+  </div>
 
   {% if error %}
     <p class="error">{{ error }}</p>
   {% endif %}
 
-  <form method="post">
+  <form class="login-form" method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="text" name="username" placeholder="Username" required><br>
-    <input type="password" name="password" placeholder="Password" required><br>
-    <button type="submit">Sign In</button>
+    <div class="form-field">
+      <label for="username">帳號</label>
+      <input type="text" id="username" name="username" placeholder="輸入管理帳號" required>
+    </div>
+    <div class="form-field">
+      <label for="password">密碼</label>
+      <input type="password" id="password" name="password" placeholder="輸入密碼" required>
+    </div>
+    <button class="login-btn" type="submit">登入後台</button>
   </form>
 
-  <a href="{{ url_for('home') }}" class="back-link">Back to Home</a>
-</div>
+  <a href="{{ url_for('home') }}" class="back-link">← 返回書展搜尋</a>
 {% endblock %}
