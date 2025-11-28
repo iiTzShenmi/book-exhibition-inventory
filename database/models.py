@@ -17,6 +17,7 @@ class BookTitle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), unique=True, nullable=False)
     author = db.Column(db.String(255))
+    cover_link = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

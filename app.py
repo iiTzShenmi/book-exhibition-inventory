@@ -5,7 +5,8 @@ import re
 import shutil
 import json
 import io
-import subprocess
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from collections import defaultdict, Counter
 from sqlalchemy import text, func
@@ -21,7 +22,7 @@ from flask import (
     session,
     url_for,
 )
-from models import db, Book, Cabinet, BookTitle, Inventory, AuditLog
+from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "database")
@@ -72,8 +73,13 @@ def sync_csv_to_db():
         print(f"[sync_csv_to_db] CSV not found: {CSV_PATH}")
         return
 
+    def normalize_title(raw):
+        # Simple normalization: strip and collapse internal whitespace
+        return re.sub(r"\s+", " ", (raw or "").strip())
+
     aggregates = Counter()  # (cabinet_name, title) -> qty
     authors = {}
+    csv_titles = set()
 
     with open(CSV_PATH, "r", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -81,6 +87,7 @@ def sync_csv_to_db():
             if len(row) < 3:
                 continue
             cab_name, title, qty_str, *rest = row
+            csv_titles.add(normalize_title(title))
             author = (rest[0].strip() if rest else "") or None
             qty = parse_qty(qty_str)
             key = (cab_name.strip(), title.strip())
@@ -125,6 +132,26 @@ def sync_csv_to_db():
     db.session.commit()
     print("[sync_csv_to_db] CSV -> DB sync complete.")
 
+    # Report DB titles not present in CSV (potential renames/duplicates)
+    if csv_titles:
+        missing_titles = []
+        for title_obj in BookTitle.query.all():
+            norm = normalize_title(title_obj.title)
+            if norm and norm not in csv_titles:
+                count = (
+                    Inventory.query.filter_by(title_id=title_obj.id).count()
+                    if hasattr(title_obj, "inventories")
+                    else 0
+                )
+                missing_titles.append((title_obj.title, count))
+        if missing_titles:
+            log_path = os.path.join(DATA_DIR, "titles_not_in_csv.txt")
+            with open(log_path, "w", encoding="utf-8") as f:
+                for title, count in missing_titles:
+                    f.write(f"{title}\tinventory_count={count}\n")
+            print(f"[sync_csv_to_db] Titles present in DB but missing in CSV: {len(missing_titles)}")
+            print(f"[sync_csv_to_db] See details in {log_path}")
+
 
 def export_db_to_csv():
     """Export database back to CSV (one-way)."""
@@ -135,7 +162,7 @@ def export_db_to_csv():
                 writer.writerow([
                     cab.name,
                     inv.title,
-                    str(inv.qty_on_hand),
+                    "True" if (inv.qty_on_hand or 0) > 0 else "False",
                     inv.author or "",
         ])
     print("[export_db_to_csv] DB -> CSV export complete.")
@@ -173,19 +200,6 @@ def ensure_hourly_backup():
     return backups
 
 
-def maybe_git_push(backups, message):
-    """Optionally git-commit and push backups if AUTO_GIT_PUSH is set."""
-    if not os.environ.get("AUTO_GIT_PUSH"):
-        return
-    try:
-        files = [CSV_PATH, backups["db"], backups["csv"]]
-        subprocess.check_call(["git", "add", *files], cwd=BASE_DIR)
-        subprocess.check_call(["git", "commit", "-m", message], cwd=BASE_DIR)
-        subprocess.check_call(["git", "push"], cwd=BASE_DIR)
-    except subprocess.CalledProcessError as exc:
-        print(f"[git-push] failed: {exc}")
-
-
 def ensure_cabinet_type_column():
     """Ensure cabinet table has a type column for main/reserve tagging."""
     with db.engine.connect() as conn:
@@ -209,6 +223,16 @@ def ensure_author_column():
     if "author" not in columns:
         with db.engine.connect() as conn:
             conn.execute(text("ALTER TABLE book ADD COLUMN author TEXT"))
+
+
+def ensure_title_cover_column():
+    """Ensure BookTitle has a cover_link column for cover lookups."""
+    with db.engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(book_title)"))
+        columns = [row[1] for row in result]
+    if "cover_link" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE book_title ADD COLUMN cover_link TEXT"))
 
 
 def migrate_legacy_books_into_inventory():
@@ -302,6 +326,18 @@ def get_or_create_title(title, author=None):
     return new_title
 
 
+COVER_PLACEHOLDER_URL = "https://placehold.co/240x320?text=No+Cover"
+
+
+def cover_url_for_title(title_obj):
+    """Return stored cover link or placeholder."""
+    if not title_obj:
+        return COVER_PLACEHOLDER_URL
+    if title_obj.cover_link:
+        return title_obj.cover_link
+    return COVER_PLACEHOLDER_URL
+
+
 LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "1"))
 
 
@@ -324,6 +360,7 @@ def initialize_app():
     """Run one-time startup tasks."""
     with app.app_context():
         db.create_all()
+        ensure_title_cover_column()
         ensure_cabinet_type_column()
         migrate_legacy_books_into_inventory()
         drop_legacy_book_table()
@@ -353,6 +390,7 @@ def book_to_dict(book):
     return {
         "id": book.id,
         "title": book.title,
+        "cover_url": cover_url_for_title(getattr(book, "book_title", None)),
         "in_stock": book.in_stock,
         "qty_on_hand": book.qty_on_hand,
         "qty_reserved": book.qty_reserved,
@@ -402,10 +440,12 @@ def build_grouped_book_entries(
     books,
     *,
     include_id=False,
+    include_cabinet_id=False,
     reference_books=None,
     include_reserve=True,
     include_reserve_out_of_stock=False,
     sort_by_stock=False,
+    show_counts=False,
 ):
     """Group books by title and derive display metadata."""
     if not books:
@@ -426,6 +466,18 @@ def build_grouped_book_entries(
         reference_list = reference_by_title.get(title, title_books)
         any_in_stock = any((ref.qty_on_hand or 0) > 0 for ref in reference_list)
         all_in_stock = all((ref.qty_on_hand or 0) > 0 for ref in reference_list)
+        has_reserve_stock = any(
+            ref.cabinet
+            and (ref.cabinet.type or "").strip().lower() == "reserve"
+            and (ref.qty_on_hand or 0) > 0
+            for ref in reference_list
+        )
+        has_display_stock = any(
+            ref.cabinet
+            and (ref.cabinet.type or "").strip().lower() == "display"
+            and (ref.qty_on_hand or 0) > 0
+            for ref in reference_list
+        )
         reserve_sources = sorted(
             {
                 ref.cabinet.name
@@ -447,6 +499,12 @@ def build_grouped_book_entries(
             not ref.in_stock
             and ref.cabinet
             and (ref.cabinet.type or "").strip().lower() == "display"
+            for ref in reference_list
+        )
+        reserve_in_stock = any(
+            ref.cabinet
+            and (ref.cabinet.type or "").strip().lower() == "reserve"
+            and (ref.qty_on_hand or 0) > 0
             for ref in reference_list
         )
 
@@ -479,13 +537,18 @@ def build_grouped_book_entries(
             qty = book.qty_on_hand or 0
             in_stock = qty > 0
             if in_stock:
-                status = (
-                    f"🟢 在庫（{qty} 本）"
-                    if qty > LOW_STOCK_THRESHOLD
-                    else f"🟠 低庫存（{qty} 本）"
-                )
+                status = "在庫"
             else:
-                status = "🔴 缺貨" if not any_in_stock else "🟠 無庫存"
+                if cabinet_type == "display" and not has_reserve_stock:
+                    status = "缺貨"
+                elif cabinet_type == "display" and has_reserve_stock:
+                    status = "無庫存（備書可補）"
+                else:
+                    status = "無庫存"
+
+            prefix = "展示" if cabinet_type == "display" else "備書"
+            status = f"{prefix} {status}"
+
             entry = {
                 "cabinet": cabinet_name,
                 "status": status,
@@ -494,6 +557,8 @@ def build_grouped_book_entries(
             }
             if include_id:
                 entry["id"] = book.id
+            if include_cabinet_id:
+                entry["cabinet_id"] = book.cabinet_id
 
             formatted_entries.append(entry)
 
@@ -619,14 +684,37 @@ def inject_is_admin():
 # 🏠 Homepage (public)
 @app.route("/")
 def home():
-    return render_template("home.html", title="書展庫存系統", show_top_sellers=True)
+    top_titles = (
+        BookTitle.query.join(Inventory)
+        .filter(BookTitle.cover_link != None)  # noqa: E711
+        .order_by(Inventory.updated_at.desc())
+        .limit(8)
+        .all()
+    )
+    top_sellers = [
+        {
+            "title": t.title,
+            "cover": cover_url_for_title(t),
+        }
+        for t in top_titles
+    ]
+    return render_template(
+        "home.html",
+        title="書展庫存系統",
+        show_top_sellers=True,
+        top_sellers=top_sellers,
+    )
 
 @app.route("/admin")
 def admin_dashboard():
+    if not session.get("is_admin"):
+        return redirect(url_for("login"))
+
     query = request.args.get("filter", "").strip()
     cabinet_filter = request.args.get("cabinet", "")
     status_filter = request.args.get("status", "")
     author_filter = request.args.get("author", "")
+    has_search = bool(request.args)
 
     # Base query
     q = Book.query.join(Cabinet).join(BookTitle)
@@ -642,19 +730,22 @@ def admin_dashboard():
     if author_filter:
         q = q.filter(BookTitle.author.contains(author_filter))
 
-    results = q.all()
+    grouped_books = {}
+    if has_search:
+        results = q.all()
 
-    reference_books = []
-    if results:
-        title_ids = {book.title_id for book in results}
-        reference_books = Book.query.filter(Book.title_id.in_(title_ids)).all()
+        reference_books = []
+        if results:
+            title_ids = {book.title_id for book in results}
+            reference_books = Book.query.filter(Book.title_id.in_(title_ids)).all()
 
-    grouped_books = build_grouped_book_entries(
-        results,
-        include_id=True,
-        reference_books=reference_books,
-        sort_by_stock=True,
-    )
+        grouped_books = build_grouped_book_entries(
+            results,
+            include_id=True,
+            reference_books=reference_books,
+            sort_by_stock=True,
+            show_counts=False,
+        )
 
     all_cabinets = Cabinet.query.order_by(Cabinet.name).all()
     cabinets_payload = [cabinet_to_dict(cab) for cab in all_cabinets]
@@ -663,7 +754,6 @@ def admin_dashboard():
         .limit(20)
         .all()
     )
-    auto_backup_meta = ensure_hourly_backup()
     last_backup_ts = None
     if os.path.exists(LAST_BACKUP_META):
         try:
@@ -678,6 +768,7 @@ def admin_dashboard():
         all_cabinets=all_cabinets,
         cabinets_payload=cabinets_payload,
         audit_logs=audit_logs,
+        has_search=has_search,
         last_backup_ts=last_backup_ts,
     )
 
@@ -692,7 +783,6 @@ def audit_page():
         .limit(200)
         .all()
     )
-    ensure_hourly_backup()
     return render_template(
         "audit.html",
         title="Audit Trail",
@@ -724,6 +814,13 @@ def modify_cabinet(title):
         return jsonify({"success": False, "message": "請輸入櫃位名稱"})
 
     cabinet = Cabinet.query.filter_by(name=cab_name).first()
+    # Fallback: strip trailing boolean tokens that may be accidentally appended
+    if not cabinet:
+        simplified = re.sub(r"\s+(true|false)$", "", cab_name, flags=re.IGNORECASE).strip()
+        if simplified and simplified != cab_name:
+            cabinet = Cabinet.query.filter_by(name=simplified).first()
+            if cabinet:
+                cab_name = simplified
     if not cabinet and action == "add":
         cabinet = Cabinet(name=cab_name)
         db.session.add(cabinet)
@@ -1148,13 +1245,29 @@ def search():
 
     results = Book.query.join(BookTitle).filter(BookTitle.title.contains(query)).all()
 
-    grouped_books = build_grouped_book_entries(results)
+    grouped_books = build_grouped_book_entries(
+        results,
+        include_reserve=False,
+        include_reserve_out_of_stock=False,
+        show_counts=False,
+    )
+    covers = {}
+    authors = {}
+    for book in results:
+        title_obj = getattr(book, "book_title", None)
+        if title_obj:
+            if title_obj.cover_link:
+                covers[book.title] = title_obj.cover_link
+            if title_obj.author:
+                authors[book.title] = title_obj.author
 
     return render_template(
         "search_results.html",
         grouped_books=grouped_books,
         query=query,
-        show_top_sellers=False   # hide on search page
+        show_top_sellers=False,   # hide on search page
+        covers=covers,
+        authors=authors,
     )
 
 @app.route("/book_details/<string:title>")
@@ -1170,8 +1283,9 @@ def book_details(title):
         books,
         include_id=True,
         reference_books=books,
-        include_reserve=False,
+        include_reserve=True,
         include_reserve_out_of_stock=True,
+        include_cabinet_id=True,
     )
     entries = grouped_map.get(title, [])
 
@@ -1183,7 +1297,7 @@ def book_details(title):
             <span>{{ entry.cabinet }}</span>
             <form action="{{ url_for('toggle_modal_stock', id=entry.id) }}" method="post" class="inline-form" data-skip-confirm="true">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="toggle-btn {{ entry.cls }}">
+                <button type="submit" class="toggle-btn stat {{ entry.cls }}">
                 {{ entry.status }}
                 </button>
             </form>
@@ -1199,6 +1313,27 @@ def book_details(title):
         """, title=title, entries=entries)
 
     return modal_html
+
+
+@app.route("/api/title_cabinets/<string:title>")
+def title_cabinets(title):
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "未登入"}), 401
+
+    title_obj = BookTitle.query.filter_by(title=title).first()
+    if not title_obj:
+        return jsonify({"success": False, "message": "書名不存在"}), 404
+
+    books = Book.query.filter_by(title_id=title_obj.id).join(Cabinet).all()
+    payload = []
+    for book in books:
+        cab = book.cabinet
+        payload.append({
+            "cabinet": cab.name if cab else "",
+            "type": cab.type if cab else "",
+            "in_stock": book.in_stock,
+        })
+    return jsonify({"success": True, "title": title, "cabinets": payload})
 
 @app.route("/book_card/<string:title>")
 def book_card(title):
@@ -1286,6 +1421,19 @@ def get_notifications():
     alerts = collect_replenish_alerts()
     return jsonify(alerts)
 
+
+@app.route("/titles/<int:title_id>/cover")
+def title_cover(title_id):
+    """Return cover metadata for a title (public-safe)."""
+    title_obj = BookTitle.query.get_or_404(title_id)
+    return jsonify({
+        "title_id": title_obj.id,
+        "title": title_obj.title,
+        "cover_url": cover_url_for_title(title_obj),
+        "cover_link": title_obj.cover_link,
+    })
+
+
 @app.route("/logout")
 def logout():
     session.clear()
@@ -1301,7 +1449,6 @@ def admin_backup():
         json.dump({"last": datetime.utcnow().isoformat()}, f)
     log_action("create_backup", target="system", details=f"db={os.path.basename(backups['db'])},csv={os.path.basename(backups['csv'])}")
     db.session.commit()
-    maybe_git_push(backups, f"Backup {backups['timestamp']}")
     return jsonify({"success": True, "message": "備份完成", "backups": backups, "timestamp": backups["timestamp"]})
 
 

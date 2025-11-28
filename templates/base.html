@@ -32,6 +32,7 @@
             🔔
             <span id="notif-count" class="notif-count" style="display:none;">0</span>
           </button>
+          <button type="button" class="btn ghost logout-btn" onclick="refreshDashboardPage()">刷新面板</button>
           <button type="button" class="btn ghost logout-btn" onclick="handleAddBook()">新增書籍</button>
           <button type="button" class="btn ghost logout-btn" onclick="handleCabinetManager()">櫃位管理</button>
           <a class="btn ghost logout-btn" href="{{ url_for('audit_page') }}">操作紀錄</a>
@@ -57,6 +58,7 @@
             <div class="toolbar-buttons">
               <button type="button" class="btn btn--ghost adv-toggle" onclick="toggleAdvanced()">進階條件</button>
               <button type="submit" class="btn btn--primary">搜尋</button>
+              <button type="button" class="btn btn--secondary" id="admin-reset-btn">重置</button>
             </div>
           </div>
 
@@ -152,22 +154,22 @@
           <p class="muted">現場詢問度最高的書籍，直接定位。</p>
         </div>
         <div class="book-scroll">
+          {% set sellers = top_sellers or [] %}
+          {% if sellers %}
+          {% for item in sellers %}
+          <div class="book-card">
+            <div class="book-cover">
+              <img src="{{ item.cover }}" alt="{{ item.title }}">
+            </div>
+            <p>{{ item.title }}</p>
+          </div>
+          {% endfor %}
+          {% else %}
           <div class="book-card">
             <div class="book-cover"></div>
-            <p>解憂雜貨店</p>
+            <p>待填入熱門書籍</p>
           </div>
-          <div class="book-card">
-            <div class="book-cover"></div>
-            <p>刻意練習</p>
-          </div>
-          <div class="book-card">
-            <div class="book-cover"></div>
-            <p>原子習慣</p>
-          </div>
-          <div class="book-card">
-            <div class="book-cover"></div>
-            <p>被討厭的勇氣</p>
-          </div>
+          {% endif %}
         </div>
       </section>
       {% endif %}

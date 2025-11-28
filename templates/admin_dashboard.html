@@ -2,24 +2,24 @@
 {% block content %}
 <section id="admin-dashboard" class="admin-board" data-all-cabinets='{{ cabinets_payload | tojson | safe }}'>
   <div class="section-head">
-    <div class="section-head__title">
-      <div>
-        <p class="eyebrow">展場現場控管</p>
-        <h2>📦 管理面板</h2>
-        <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
-      </div>
-      <div class="card audit-card backup-card slim-card">
-        <div class="card__header">
-          <span class="chip chip--soft">備份</span>
-          <h3>資料備份</h3>
-        </div>
-        <p class="muted">備份會產生當前 DB 與 CSV 的副本。</p>
-        <p class="eyebrow" style="margin:4px 0;">上次備份：<span id="last-backup-ts">{{ last_backup_ts and last_backup_ts[:16].replace('T',' ') }}</span></p>
-        <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即備份</button>
-      </div>
-    </div>
+    <p class="eyebrow">展場現場控管</p>
+    <h2>📦 管理面板</h2>
+    <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
   </div>
 
+  {% if not has_search %}
+  <div class="card audit-card backup-card slim-card" style="max-width:320px;">
+    <div class="card__header">
+      <span class="chip chip--soft">備份</span>
+      <h3>資料備份</h3>
+    </div>
+    <p class="muted">備份會產生當前 DB 與 CSV 的副本。</p>
+    <p class="eyebrow" style="margin:4px 0;">上次備份：<span id="last-backup-ts">{{ last_backup_ts and last_backup_ts[:16].replace('T',' ') }}</span></p>
+    <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即備份</button>
+  </div>
+  {% endif %}
+
+  {% if has_search %}
   <div class="grid admin-grid">
     {% for title, entries in grouped_books.items() %}
     <div class="card" id="card-{{ title }}">
@@ -49,6 +49,7 @@
     </div>
     {% endfor %}
   </div>
+  {% endif %}
 
     <div class="card audit-card">
       <div class="card__header">
@@ -106,6 +107,7 @@
             <option value="{{ cab.name }}">{{ cab.name }}</option>
             {% endfor %}
           </select>
+          <div id="cabinet-exists-notice" class="muted" style="display:none;margin-top:6px;">該書已在此櫃位</div>
         </div>
 
         <div class="actions btn-group">

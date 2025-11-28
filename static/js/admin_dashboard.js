@@ -64,23 +64,15 @@
   function updateCabinetSelect() {
     const select = document.getElementById('cabinet-select');
     const actionInput = document.getElementById('cabinet-action');
-    const removeBtn = document.querySelector('.action-btn.remove');
+    const existsNotice = document.getElementById('cabinet-exists-notice');
     if (!select || !actionInput) return;
 
-    const hasCurrent = currentCabinetNames.length > 0;
-
-    if (removeBtn) {
-      if (!hasCurrent) {
-        removeBtn.disabled = true;
-        removeBtn.classList.add('disabled');
-        if (actionInput.value === 'remove') setCabinetAction('add');
-      } else {
-        removeBtn.disabled = false;
-        removeBtn.classList.remove('disabled');
-      }
+    let rawSource = actionInput.value === 'remove' ? currentCabinetNames : ALL_CABINET_NAMES;
+    // When adding, exclude cabinets the title already has
+    if (actionInput.value === 'add' && currentCabinetNames.length) {
+      rawSource = rawSource.filter(name => !currentCabinetNames.includes(name));
     }
-
-    const source = actionInput.value === 'remove' ? currentCabinetNames : ALL_CABINET_NAMES;
+    const source = Array.from(new Set((rawSource || []).filter(Boolean))).sort();
 
     select.innerHTML = '';
     const placeholder = document.createElement('option');
@@ -95,19 +87,32 @@
       select.appendChild(option);
     });
 
-    const disableSelect = actionInput.value === 'remove' && !hasCurrent;
-    select.disabled = disableSelect;
+    select.disabled = actionInput.value === 'remove' && source.length === 0;
     select.value = '';
+    if (existsNotice) existsNotice.style.display = 'none';
   }
 
   function openCabinetModal(title) {
     currentTitle = title;
-    currentCabinetNames = collectCabinetNamesForTitle(title);
     const overlay = document.getElementById('cabinet-modal-overlay');
     const cabinetForm = document.getElementById('cabinet-form');
     if (cabinetForm) cabinetForm.action = `/modify_cabinet/${encodeURIComponent(title)}`;
     setCabinetAction('add');
-    updateCabinetSelect();
+    // Load cabinets from server to ensure accurate list
+    fetch(`/api/title_cabinets/${encodeURIComponent(title)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          currentCabinetNames = (data.cabinets || []).map(c => c.cabinet).filter(Boolean);
+        } else {
+          currentCabinetNames = collectCabinetNamesForTitle(title);
+        }
+        updateCabinetSelect();
+      })
+      .catch(() => {
+        currentCabinetNames = collectCabinetNamesForTitle(title);
+        updateCabinetSelect();
+      });
     if (overlay) overlay.style.display = 'flex';
   }
 
@@ -338,6 +343,7 @@ async function toggleCabinetType(id) {
         row.className = 'cabinet-book-row';
         row.dataset.bookId = book.id;
         row.dataset.bookTitle = book.title;
+        row.dataset.qty = book.qty_on_hand || 0;
 
         const titleSpan = document.createElement('span');
         titleSpan.className = 'cabinet-book-title';
@@ -345,8 +351,7 @@ async function toggleCabinetType(id) {
 
         const statusSpan = document.createElement('span');
         statusSpan.className = `cabinet-book-status ${book.in_stock ? 'status--in' : 'status--out'}`;
-        const qtyLabel = typeof book.qty_on_hand === 'number' ? `（${book.qty_on_hand}）` : '';
-        statusSpan.textContent = book.in_stock ? `在庫${qtyLabel}` : '缺貨';
+        statusSpan.textContent = book.in_stock ? '在庫' : '缺貨';
 
         const actions = document.createElement('div');
         actions.className = 'cabinet-book-actions';
@@ -452,6 +457,8 @@ async function toggleCabinetType(id) {
       showToast('移除失敗', false);
     }
   }
+
+  // Removed quantity adjust (simplified inventory: present/absent)
 
   function populateMoveTargets(sourceCabinetId) {
     const select = document.getElementById('move-book-target');
@@ -774,6 +781,15 @@ async function toggleCabinetType(id) {
       e.preventDefault();
       const title = currentTitle || '';
       if (!window.confirm(`要變更《${title}》的櫃位嗎？`)) return;
+      const action = document.getElementById('cabinet-action')?.value || 'add';
+      const cabSelect = document.getElementById('cabinet-select');
+      const cabName = cabSelect?.value?.trim();
+      if (action === 'add' && cabName && currentCabinetNames.includes(cabName)) {
+        const notice = document.getElementById('cabinet-exists-notice');
+        if (notice) notice.style.display = 'block';
+        showToast(`《${title}》已存在於「${cabName}」`, false);
+        return;
+      }
       const data = new FormData(this);
       fetch(this.action, {
         method: 'POST',
@@ -819,7 +835,11 @@ async function toggleCabinetType(id) {
             if (res.success) {
               if (currentTitle) await refreshBookCard(currentTitle);
               closeCabinetModal();
-              loadCabinets();
+              await loadCabinets();
+              await refreshBookCardsForTitles([title]);
+              if (typeof refreshDashboardPage === 'function') {
+                refreshDashboardPage();
+              }
             }
           } catch (err) {
             console.warn('Unexpected response:', r);
@@ -861,6 +881,11 @@ function bindInlineForms() {
             if (title) {
               await refreshBookCard(title);
               await refreshModal(title);
+              // If we're on admin search results, also refresh the matching card in the grid
+              const searchCard = document.getElementById(`card-${CSS.escape(title)}`);
+              if (searchCard) {
+                await refreshBookCard(title);
+              }
             }
           } else {
             showToast(data.message || '更新失敗', false);
@@ -1073,7 +1098,18 @@ function bindInlineForms() {
   window.closeCabinetBooksModal = closeCabinetBooksModal;
   window.closeMoveBookModal = closeMoveBookModal;
   window.refreshBookCard = refreshBookCard;
+  window.refreshDashboardPage = () => window.location.reload();
   window.runBackup = runBackup;
+  const resetBtn = document.getElementById('admin-reset-btn');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      const form = document.getElementById('admin-search-form');
+      if (form) form.reset();
+      const advanced = document.getElementById('advanced-panel');
+      if (advanced) advanced.style.display = 'none';
+      window.location.href = '/admin';
+    });
+  }
 
   document.addEventListener('DOMContentLoaded', init);
 })();
