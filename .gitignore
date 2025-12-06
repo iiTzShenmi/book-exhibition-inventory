@@ -1,0 +1,26 @@
+# Bytecode / caches
+__pycache__/
+*.pyc
+
+# Virtualenvs / local env
+.env
+.venv/
+env/
+venv/
+
+# Editor
+.vscode/
+
+# Local logs/backups/artifacts
+database/backups/
+database/*.db
+database/*.sqlite
+database/book_csv_missing.txt
+last_run.json
+
+# Tools and generated codes (keep local only)
+tools/create_admin_code.py
+tools/generate_security_code.py
+tools/.COMMAND
+tools/missing_*
+tools/topics_cache.json

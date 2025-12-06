@@ -30,5 +30,8 @@
     <button class="login-btn" type="submit">登入後台</button>
   </form>
 
-  <a href="{{ url_for('home') }}" class="back-link">← 返回書展搜尋</a>
+  <div class="form-links">
+    <a href="{{ url_for('register') }}" class="back-link">🆕 申請管理帳號</a>
+    <a href="{{ url_for('home') }}" class="back-link">← 返回書展搜尋</a>
+  </div>
 {% endblock %}

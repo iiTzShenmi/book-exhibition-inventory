@@ -17,6 +17,7 @@ class BookTitle(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), unique=True, nullable=False)
     author = db.Column(db.String(255))
+    topics = db.Column(db.Text)  # JSON/text list of topics (prototype support)
     cover_link = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -62,3 +63,25 @@ class AuditLog(db.Model):
     target = db.Column(db.String(255), nullable=True)
     details = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class AdminUser(db.Model):
+    __tablename__ = "admin_user"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(50), nullable=False, default="admin")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AdminInvite(db.Model):
+    __tablename__ = "admin_invite"
+
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    memo = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    used_at = db.Column(db.DateTime, nullable=True)

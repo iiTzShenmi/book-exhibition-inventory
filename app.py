@@ -22,7 +22,8 @@ from flask import (
     session,
     url_for,
 )
-from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog
+from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
+from recommender import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "database")
@@ -39,6 +40,7 @@ _plain_password = os.environ.get("ADMIN_PASSWORD")
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH")
 if not ADMIN_PASSWORD_HASH:
     ADMIN_PASSWORD_HASH = generate_password_hash(_plain_password or "1234")
+DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{DB_PATH}"
@@ -145,7 +147,7 @@ def sync_csv_to_db():
                 )
                 missing_titles.append((title_obj.title, count))
         if missing_titles:
-            log_path = os.path.join(DATA_DIR, "titles_not_in_csv.txt")
+            log_path = os.path.join(DATA_DIR, "book_csv_missing.txt")
             with open(log_path, "w", encoding="utf-8") as f:
                 for title, count in missing_titles:
                     f.write(f"{title}\tinventory_count={count}\n")
@@ -338,6 +340,47 @@ def cover_url_for_title(title_obj):
     return COVER_PLACEHOLDER_URL
 
 
+def _normalized_identifier(username: str, email: str) -> str:
+    return f"{(username or '').strip().lower()}|{(email or '').strip().lower()}"
+
+
+def generate_invite_code(length: int = 10) -> str:
+    """Generate a random alphanumeric invite code."""
+    alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def ensure_admin_email_column():
+    """Ensure admin_user table has email column (SQLite-friendly)."""
+    inspector = db.inspect(db.engine)
+    columns = [col["name"] for col in inspector.get_columns("admin_user")]
+    if "email" not in columns:
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE admin_user ADD COLUMN email VARCHAR(255)"))
+            conn.commit()
+    if "admin_invite" not in inspector.get_table_names():
+        AdminInvite.__table__.create(db.engine)
+
+
+def ensure_default_admin():
+    """Create a default admin user when none exist, using env credentials."""
+    if AdminUser.query.first():
+        return
+    username = os.environ.get("ADMIN_USERNAME", "admin")
+    password = os.environ.get("ADMIN_PASSWORD", "1234")
+    email = os.environ.get("ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL)
+    user = AdminUser(
+        username=username,
+        email=email,
+        password_hash=generate_password_hash(password),
+        role="admin",
+    )
+    db.session.add(user)
+    db.session.commit()
+    log_action("seed_admin", target=username, details=f"created default admin user (email={email})")
+    db.session.commit()
+
+
 LOW_STOCK_THRESHOLD = int(os.environ.get("LOW_STOCK_THRESHOLD", "1"))
 
 
@@ -360,13 +403,14 @@ def initialize_app():
     """Run one-time startup tasks."""
     with app.app_context():
         db.create_all()
+        ensure_admin_email_column()
+        ensure_default_admin()
         ensure_title_cover_column()
         ensure_cabinet_type_column()
         migrate_legacy_books_into_inventory()
         drop_legacy_book_table()
         sync_csv_to_db()
 initialize_app()
-
 
 def cabinet_type_name(cabinet):
     """Return the normalized cabinet type string."""
@@ -510,8 +554,7 @@ def build_grouped_book_entries(
 
         note_text = None
         if reserve_sources and has_display_out:
-            joined = "、".join(reserve_sources)
-            note_text = f"📦 請取{joined}"
+            note_text = "📦 請取備書" if include_reserve else "請通知工作人員補書"
 
         formatted_entries = []
         note_targets = []
@@ -536,18 +579,15 @@ def build_grouped_book_entries(
 
             qty = book.qty_on_hand or 0
             in_stock = qty > 0
-            if in_stock:
-                status = "在庫"
-            else:
-                if cabinet_type == "display" and not has_reserve_stock:
-                    status = "缺貨"
-                elif cabinet_type == "display" and has_reserve_stock:
-                    status = "無庫存（備書可補）"
+            if cabinet_type == "display":
+                if in_stock:
+                    status = "展示中"
+                elif has_reserve_stock:
+                    status = "暫無展示"
                 else:
-                    status = "無庫存"
-
-            prefix = "展示" if cabinet_type == "display" else "備書"
-            status = f"{prefix} {status}"
+                    status = "缺貨"
+            else:
+                status = "備書可取" if in_stock else "備書缺貨"
 
             entry = {
                 "cabinet": cabinet_name,
@@ -731,6 +771,7 @@ def admin_dashboard():
         q = q.filter(BookTitle.author.contains(author_filter))
 
     grouped_books = {}
+    authors = {}
     if has_search:
         results = q.all()
 
@@ -738,6 +779,10 @@ def admin_dashboard():
         if results:
             title_ids = {book.title_id for book in results}
             reference_books = Book.query.filter(Book.title_id.in_(title_ids)).all()
+            # Collect authors for display on cards
+            for book in results:
+                if book.book_title and book.book_title.author:
+                    authors[book.title] = book.book_title.author
 
         grouped_books = build_grouped_book_entries(
             results,
@@ -770,6 +815,7 @@ def admin_dashboard():
         audit_logs=audit_logs,
         has_search=has_search,
         last_backup_ts=last_backup_ts,
+        authors=authors,
     )
 
 
@@ -1261,6 +1307,51 @@ def search():
             if title_obj.author:
                 authors[book.title] = title_obj.author
 
+    suggestions = []
+    if not results:
+        all_books = (
+            Book.query.join(BookTitle).join(Cabinet).all()
+        )
+        profiles = []
+        books_by_title = defaultdict(list)
+        for b in all_books:
+            bt = getattr(b, "book_title", None)
+            cab = getattr(b, "cabinet", None)
+            profiles.append(
+                BookProfile(
+                    title=b.title,
+                    author=bt.author if bt else "",
+                    cabinet=cab.name if cab else "",
+                    cabinet_type=(cab.type if cab else "") or "",
+                    topics=parse_topics_field(getattr(bt, "topics", None) if bt else None),
+                    in_stock=b.in_stock,
+                )
+            )
+            books_by_title[b.title].append(b)
+
+        scored_suggestions = suggest_for_missing_title(profiles, query, top=5)
+        if scored_suggestions:
+            print("[suggestions]", query)
+            for score, prof in scored_suggestions:
+                print(f"  {score:.3f} - {prof.title} / {prof.author} ({prof.cabinet})")
+
+        for score, prof in scored_suggestions:
+            entries_map = build_grouped_book_entries(
+                books_by_title.get(prof.title, []),
+                include_reserve=True,
+                include_reserve_out_of_stock=True,
+                show_counts=False,
+            )
+            suggestions.append(
+                {
+                    "title": prof.title,
+                    "topics": prof.topics or [],
+                    "entries": entries_map.get(prof.title, []),
+                    "score": round(score, 3),
+                    "author": prof.author or "",
+                }
+            )
+
     return render_template(
         "search_results.html",
         grouped_books=grouped_books,
@@ -1268,6 +1359,7 @@ def search():
         show_top_sellers=False,   # hide on search page
         covers=covers,
         authors=authors,
+        suggestions=suggestions,
     )
 
 @app.route("/book_details/<string:title>")
@@ -1400,17 +1492,72 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if (
-            username == ADMIN_USERNAME
-            and check_password_hash(ADMIN_PASSWORD_HASH, password)
-        ):
+        user = AdminUser.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password):
             session["is_admin"] = True
-            session["admin_user"] = username or ADMIN_USERNAME
+            session["admin_user"] = user.username
+            session["admin_id"] = user.id
             session["csrf_token"] = secrets.token_urlsafe(32)
+            log_action("login_success", target=user.username)
+            db.session.commit()
             return redirect(url_for("admin_dashboard"))
         else:
+            log_action("login_failed", target=username or "(blank)", details="invalid_credentials")
+            db.session.commit()
             error = "Invalid username or password"
     return render_template("login.html", title="Admin Login", error=error)
+
+
+# Admin registration page
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if session.get("is_admin"):
+        return redirect(url_for("admin_dashboard"))
+
+    error = None
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        email = (request.form.get("email") or "").strip()
+        password = request.form.get("password") or ""
+        confirm = request.form.get("confirm_password") or ""
+        sec_code = (request.form.get("security_code") or "").strip()
+
+        if not username or not password or not email or not sec_code:
+            error = "請填寫所有欄位"
+        elif len(password) < 6:
+            error = "密碼至少 6 碼"
+        elif password != confirm:
+            error = "密碼確認不一致"
+        elif AdminUser.query.filter_by(username=username).first():
+            error = "此帳號已存在"
+        elif AdminUser.query.filter_by(email=email).first():
+            error = "此 Email 已存在"
+        else:
+            invite = AdminInvite.query.filter_by(code=sec_code, used_at=None).first()
+            if not invite:
+                error = "安全碼無效或已使用，請向網站擁有者確認"
+            else:
+                user = AdminUser(
+                    username=username,
+                    email=email,
+                    password_hash=generate_password_hash(password),
+                    role="admin",
+                )
+                db.session.add(user)
+                invite.used_at = datetime.utcnow()
+                log_action("register_admin", target=username, details=f"email={email}")
+                db.session.commit()
+
+            # Auto-login after successful registration
+                session["is_admin"] = True
+                session["admin_user"] = user.username
+                session["admin_id"] = user.id
+                session["csrf_token"] = secrets.token_urlsafe(32)
+                log_action("login_success", target=user.username, details="auto after register")
+                db.session.commit()
+                return redirect(url_for("admin_dashboard"))
+
+    return render_template("register.html", title="Admin Register", error=error)
 
 @app.route("/api/notifications")
 def get_notifications():
@@ -1436,6 +1583,10 @@ def title_cover(title_id):
 
 @app.route("/logout")
 def logout():
+    actor = session.get("admin_user") or "unknown"
+    if session.get("is_admin"):
+        log_action("logout", target=actor)
+        db.session.commit()
     session.clear()
     return redirect(url_for("home"))
 

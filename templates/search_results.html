@@ -1,4 +1,15 @@
 {% extends 'base.html' %}
+{% block extra_css %}
+<style>
+  .hero {
+    padding: 12px 0 12px;
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+  .page-content { padding-top: 12px; }
+  .content-section { margin-top: 0; }
+</style>
+{% endblock %}
 {% block content %}
 <div class="results">
   <div class="section-head">
@@ -28,7 +39,7 @@
           <span class="cab">📍 {{ entry.cabinet }}</span>
           <span class="stat {{ entry.cls or '' }}">{{ entry.status }}</span>
         </div>
-        {% if is_admin and entry.notes %}
+        {% if entry.notes %}
         {% for note in entry.notes %}
         <div class="reserve-hint">
           {{ note }}
@@ -41,11 +52,59 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state">
+  <div class="empty-state compact">
     <div class="empty-state__icon">🔎</div>
-    <p>找不到任何符合「{{ query }}」的書籍。</p>
-    <span class="muted">換個關鍵字，或嘗試書名的部分字詞。</span>
+    <h3>沒有找到「{{ query }}」</h3>
+    <p class="muted">試試部分書名、主題關鍵字，或檢查看看這些建議。</p>
   </div>
+  {% if suggestions %}
+  <div class="section-head suggest-head">
+    <p class="eyebrow">猜你想找</p>
+    <h3>相關展場書籍</h3>
+    <p class="muted">依書名與主題關鍵字推薦的候選項目。</p>
+  </div>
+  <div class="grid results-grid suggestion-grid">
+    {% for item in suggestions %}
+    <article class="card result-card">
+      <div class="card__header">
+        <span class="chip chip--soft">建議</span>
+        <h3>{{ item.title }}</h3>
+        {% if item.author %}
+        <p class="muted">作者：{{ item.author }}</p>
+        {% endif %}
+      </div>
+
+      {% if item.topics %}
+      <div class="topic-chips">
+        {% for topic in item.topics %}
+        <span class="chip chip--soft">{{ topic }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if item.entries %}
+      <div class="status-list">
+        {% for entry in item.entries %}
+        <div class="status-row">
+          <span class="cab">📍 {{ entry.cabinet }}</span>
+          <span class="stat {{ entry.cls or '' }}">{{ entry.status }}</span>
+        </div>
+        {% if entry.notes %}
+        {% for note in entry.notes %}
+        <div class="reserve-hint">
+          {{ note }}
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">暫無櫃位資訊</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% endif %}
 </div>
 {% endblock %}
@@ -53,6 +112,22 @@
 {% block extra_js %}
 <script>
   (() => {
+    // Auto-focus first result card; fallback to search input
+    window.requestAnimationFrame(() => {
+      const firstCard = document.querySelector('.results-grid .result-card');
+      if (firstCard) {
+        firstCard.setAttribute('tabindex', '-1');
+        firstCard.focus({ preventScroll: true });
+        firstCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else {
+        const input = document.querySelector('.customer-search .search-box__input');
+        if (input) {
+          input.focus({ preventScroll: true });
+          input.select?.();
+        }
+      }
+    });
+
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay';
     overlay.style.display = 'none';
@@ -89,7 +164,10 @@
         const img = card.querySelector('.cover-pop img');
         if (!img) return;
         const title = card.dataset.title || '';
-        const author = card.dataset.author || '';
+        const author = (card.dataset.author || '').trim();
+        const authorBlock = author
+          ? `<div class="cover-author">作者：${author}</div>`
+          : `<div class="cover-author muted">作者：未提供</div>`;
         let entries = [];
         try {
           entries = JSON.parse(card.dataset.entries || '[]');
@@ -100,16 +178,23 @@
         meta.innerHTML = `
           <div class="cover-meta-row">
             <div class="cover-title">${title}</div>
-            ${author ? `<div class="cover-author">作者：${author}</div>` : ''}
+            ${authorBlock}
           </div>
         `;
         if (entries && entries.length) {
-          cabList.innerHTML = entries.map(e => `
-            <div class="cover-cab-row">
-              <span class="cabinet">${e.cabinet}</span>
-              <span class="status ${e.cls || ''}">${e.status}</span>
-            </div>
-          `).join('');
+          cabList.innerHTML = entries.map(e => {
+            const normalizedStatus = (e.status || '').includes('展示')
+              ? e.status.includes('缺貨') ? '缺貨' : '展示中'
+              : e.status || '';
+            const statusClass = e.cls || '';
+            const rowClass = statusClass.includes('out') ? 'out-stock' : statusClass.includes('in') ? 'in-stock' : '';
+            return `
+              <div class="cover-cab-row ${rowClass}">
+                <span class="cabinet">${e.cabinet}</span>
+                <span class="status ${statusClass}">${normalizedStatus}</span>
+              </div>
+            `;
+          }).join('');
         }
         overlay.style.display = 'flex';
       });
