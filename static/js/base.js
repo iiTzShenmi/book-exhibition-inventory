@@ -181,6 +181,18 @@
   window.openNotif = openNotif;
   window.closeNotif = closeNotif;
 
+  // Home page hint actions
+  document.addEventListener('DOMContentLoaded', () => {
+    const focusBtn = document.getElementById('hint-focus-search');
+    const input = document.querySelector('.customer-search input[name="q"]');
+    if (focusBtn && input) {
+      focusBtn.addEventListener('click', () => {
+        input.focus();
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
+  });
+
   function openBookModal(title) {
     const overlay = document.getElementById('book-modal-overlay');
     const box = document.getElementById('book-modal-box');

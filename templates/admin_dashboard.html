@@ -7,18 +7,6 @@
     <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
   </div>
 
-  {% if not has_search %}
-  <div class="card audit-card backup-card slim-card" style="max-width:320px;">
-    <div class="card__header">
-      <span class="chip chip--soft">備份</span>
-      <h3>資料備份</h3>
-    </div>
-    <p class="muted">備份會產生當前 DB 與 CSV 的副本。</p>
-    <p class="eyebrow" style="margin:4px 0;">上次備份：<span id="last-backup-ts">{{ last_backup_ts and last_backup_ts[:16].replace('T',' ') }}</span></p>
-    <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即備份</button>
-  </div>
-  {% endif %}
-
   {% if has_search %}
   <div class="grid admin-grid">
     {% for title, entries in grouped_books.items() %}
@@ -26,6 +14,10 @@
       <div class="card__header">
         <span class="chip chip--soft">書名</span>
         <h3>{{ title }}</h3>
+        {% set author = (authors or {}).get(title) %}
+        {% if author %}
+        <p class="muted" style="margin:0;">作者：{{ author }}</p>
+        {% endif %}
       </div>
 
       <div class="status-list">
@@ -112,7 +104,7 @@
 
         <div class="actions btn-group">
           <button type="submit" class="btn btn--primary">確定</button>
-          <button type="button" class="btn btn--secondary" onclick="closeCabinetModal()">取消</button>
+          <button type="button" class="btn btn--secondary btn--danger-outline" onclick="closeCabinetModal()">取消</button>
         </div>
       </form>
     </div>
@@ -142,7 +134,7 @@
         </div>
         <div class="actions btn-group">
           <button type="submit" class="btn btn--primary">新增</button>
-          <button type="button" class="btn btn--secondary" onclick="closeAddBookModal()">取消</button>
+          <button type="button" class="btn btn--secondary btn--danger-outline" onclick="closeAddBookModal()">取消</button>
         </div>
       </form>
     </div>
@@ -225,7 +217,7 @@
         </div>
         <div class="actions btn-group">
           <button type="submit" class="btn btn--primary">移動</button>
-          <button type="button" class="btn btn--secondary" onclick="closeMoveBookModal()">取消</button>
+          <button type="button" class="btn btn--secondary btn--danger-outline" onclick="closeMoveBookModal()">取消</button>
         </div>
       </form>
     </div>

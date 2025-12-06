@@ -46,49 +46,57 @@
       </div>
 
       {% if request.endpoint == 'admin_dashboard' %}
-      <div class="admin-toolbar">
-        <div class="toolbar-copy">
-          <p class="eyebrow">展場控台</p>
-          <h2>快速定位與整理庫存</h2>
-          <p class="muted">用關鍵字、櫃位或作者，迅速找到展場中的任何一本書。</p>
+        <div class="admin-toolbar">
+          <div class="admin-toolbar__top">
+            <div class="toolbar-copy">
+              <p class="eyebrow">展場控台</p>
+              <h2>快速定位與整理庫存</h2>
+              <p class="muted">用關鍵字、櫃位或作者，迅速找到展場中的任何一本書。</p>
+              <form id="admin-search-form" action="{{ url_for('admin_dashboard') }}" method="get" class="admin-search-form">
+                <div class="admin-search-row">
+                  <input type="text" name="filter" placeholder="輸入書名..." value="">
+                  <div class="toolbar-buttons">
+                    <button type="button" class="btn btn--ghost adv-toggle" onclick="toggleAdvanced()">進階條件</button>
+                    <button type="submit" class="btn btn--primary">搜尋</button>
+                    <button type="button" class="btn btn--secondary" id="admin-reset-btn">重置</button>
+                  </div>
+                </div>
+
+                <div id="advanced-panel" class="advanced-panel" style="display:none;">
+                  <div class="field">
+                    <label>櫃位</label>
+                    <select name="cabinet" id="cabinet">
+                      <option value="">全部</option>
+                      {% for cab in all_cabinets %}
+                      <option value="{{ cab.name }}">{{ cab.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+
+                  <div class="field">
+                    <label>庫存</label>
+                    <select name="status" id="status">
+                      <option value="">全部</option>
+                      <option value="in">有庫存</option>
+                      <option value="out">無庫存</option>
+                    </select>
+                  </div>
+
+                  <div class="field">
+                    <label>作者</label>
+                    <input type="text" name="author" id="author" placeholder="作者姓名 (選填)">
+                  </div>
+                </div>
+              </form>
+            </div>
+            <div class="card audit-card backup-card slim-card admin-backup-card">
+              <p class="eyebrow">備份</p>
+              <h2>資料備份</h2>
+              <p class="muted">上次備份：<span id="last-backup-ts">{{ last_backup_ts and last_backup_ts[:16].replace('T',' ') }}</span></p>
+              <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即備份</button>
+            </div>
+          </div>
         </div>
-        <form id="admin-search-form" action="{{ url_for('admin_dashboard') }}" method="get" class="admin-search-form">
-          <div class="admin-search-row">
-            <input type="text" name="filter" placeholder="輸入書名..." value="">
-            <div class="toolbar-buttons">
-              <button type="button" class="btn btn--ghost adv-toggle" onclick="toggleAdvanced()">進階條件</button>
-              <button type="submit" class="btn btn--primary">搜尋</button>
-              <button type="button" class="btn btn--secondary" id="admin-reset-btn">重置</button>
-            </div>
-          </div>
-
-          <div id="advanced-panel" class="advanced-panel" style="display:none;">
-            <div class="field">
-              <label>櫃位</label>
-              <select name="cabinet" id="cabinet">
-                <option value="">全部</option>
-                {% for cab in all_cabinets %}
-                <option value="{{ cab.name }}">{{ cab.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-
-            <div class="field">
-              <label>庫存</label>
-              <select name="status" id="status">
-                <option value="">全部</option>
-                <option value="in">有庫存</option>
-                <option value="out">無庫存</option>
-              </select>
-            </div>
-
-            <div class="field">
-              <label>作者</label>
-              <input type="text" name="author" id="author" placeholder="作者姓名 (選填)">
-            </div>
-          </div>
-        </form>
-      </div>
       {% endif %}
     </header>
 
@@ -127,9 +135,10 @@
               <button class="btn btn--primary" type="submit">搜尋</button>
             </div>
             <div class="hint-row">
-              <span class="chip">現場快速導覽</span>
+              <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
               <span class="chip chip--soft">支援多櫃位</span>
-              <span class="chip chip--soft">即時庫存</span>
+              {% set realtime_href = url_for('admin_dashboard') if is_admin else url_for('login') %}
+              <a class="chip chip--action" id="hint-realtime" href="{{ realtime_href }}">⚡ 即時庫存</a>
             </div>
           </form>
         </div>

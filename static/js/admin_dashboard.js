@@ -623,7 +623,7 @@ async function toggleCabinetType(id) {
     const box = document.getElementById('cabinet-action-box');
     if (!overlay || !box || !cabinet) return;
 
-    const closeBtn = `<button type="button" class="btn btn--secondary btn--sm" data-close-action>取消</button>`;
+    const closeBtn = `<button type="button" class="btn btn--secondary btn--sm btn--danger-outline" data-close-action>取消</button>`;
 
     if (mode === 'rename') {
       box.innerHTML = `
