@@ -57,6 +57,27 @@ app.secret_key = (
 )
 db.init_app(app)
 
+
+def masked_db_uri(uri: str | None) -> str:
+    """Return a masked DB URI (hide password)."""
+    if not uri:
+        return "sqlite://"
+    try:
+        parsed = urllib.parse.urlparse(uri)
+        user = parsed.username or ""
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        cred = ""
+        if user:
+            cred = user
+            if parsed.password:
+                cred += ":****"
+        netloc = f"{cred}@{host}{port}" if cred else f"{host}{port}"
+        masked = parsed._replace(netloc=netloc)
+        return urllib.parse.urlunparse(masked)
+    except Exception:
+        return "masked-db-uri"
+
 def parse_qty(value):
     """Parse a quantity string that may come as bool-ish text or int."""
     if value is None:
@@ -377,6 +398,9 @@ def generate_invite_code(length: int = 10) -> str:
 
 def is_postgres():
     return bool(DATABASE_URL) and DATABASE_URL.startswith("postgresql://")
+
+
+print(f"[db] using {masked_db_uri(app.config['SQLALCHEMY_DATABASE_URI'])}")
 
 
 def ensure_admin_email_column():
