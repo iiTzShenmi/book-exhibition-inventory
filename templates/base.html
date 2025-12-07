@@ -160,13 +160,19 @@
         <div class="section-head">
           <p class="eyebrow">熱門選書</p>
           <h2>🔥 展場熱銷</h2>
-          <p class="muted">現場詢問度最高的書籍，直接定位。</p>
+          <p class="muted">近期最常被查看的書籍，直接定位。</p>
         </div>
         <div class="book-scroll">
           {% set sellers = top_sellers or [] %}
           {% if sellers %}
           {% for item in sellers %}
-          <div class="book-card">
+          <div class="book-card" data-title="{{ item.title }}" data-source="top_seller">
+            {% if item.count %}
+            <div class="book-rank-badge">
+              <span class="hot-dot">•</span>
+              <span class="count">{{ item.count }}</span>
+            </div>
+            {% endif %}
             <div class="book-cover">
               <img src="{{ item.cover }}" alt="{{ item.title }}">
             </div>
@@ -200,6 +206,28 @@
   </div>
 
   <script src="{{ url_for('static', filename='js/base.js') }}" defer></script>
+  <script>
+    (() => {
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const sendView = (title, source) => {
+        if (!title) return;
+        fetch('{{ url_for("api_view_event") }}', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': csrf,
+          },
+          body: JSON.stringify({ title, source }),
+        }).catch(() => {});
+      };
+      document.addEventListener('click', (e) => {
+        const card = e.target.closest('.book-card[data-title][data-source="top_seller"]');
+        if (!card) return;
+        const title = card.dataset.title || '';
+        sendView(title, 'top_seller');
+      });
+    })();
+  </script>
   {% block extra_js %}{% endblock %}
 </body>
 

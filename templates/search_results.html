@@ -23,7 +23,7 @@
     {% for title, entries in grouped_books.items() %}
     {% set cover = (covers or {}).get(title) %}
     {% set author = (authors or {}).get(title, '') %}
-    <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ title }}" data-author="{{ author }}" data-entries='{{ entries | tojson | safe }}'>
+    <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ title }}" data-author="{{ author }}" data-entries='{{ entries | tojson | safe }}' data-source="search_result">
       {% if cover %}
       <div class="cover-pop">
         <img src="{{ cover }}" alt="{{ title }}">
@@ -65,7 +65,7 @@
   </div>
   <div class="grid results-grid suggestion-grid">
     {% for item in suggestions %}
-    <article class="card result-card">
+    <article class="card result-card" data-title="{{ item.title }}" data-source="suggestion">
       <div class="card__header">
         <span class="chip chip--soft">建議</span>
         <h3>{{ item.title }}</h3>
@@ -112,6 +112,19 @@
 {% block extra_js %}
 <script>
   (() => {
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const sendView = (title, source) => {
+      if (!title) return;
+      fetch('{{ url_for("api_view_event") }}', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrf,
+        },
+        body: JSON.stringify({ title, source }),
+      }).catch(() => {});
+    };
+
     // Auto-focus first result card; fallback to search input
     window.requestAnimationFrame(() => {
       const firstCard = document.querySelector('.results-grid .result-card');
@@ -126,6 +139,14 @@
           input.select?.();
         }
       }
+    });
+
+    document.querySelectorAll('.result-card[data-title]').forEach(card => {
+      card.addEventListener('click', () => {
+        const title = card.dataset.title || '';
+        const source = card.dataset.source || 'search_result';
+        sendView(title, source);
+      });
     });
 
     const overlay = document.createElement('div');

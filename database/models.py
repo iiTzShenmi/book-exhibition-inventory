@@ -85,3 +85,13 @@ class AdminInvite(db.Model):
     memo = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     used_at = db.Column(db.DateTime, nullable=True)
+
+
+class ViewEvent(db.Model):
+    __tablename__ = "view_event"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False, index=True)
+    source = db.Column(db.String(50))
+    actor = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)

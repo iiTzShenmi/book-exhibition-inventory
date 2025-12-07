@@ -22,5 +22,7 @@ last_run.json
 tools/create_admin_code.py
 tools/generate_security_code.py
 tools/.COMMAND
+tools/README.md
 tools/missing_*
 tools/topics_cache.json
+prototypes/top_views_monitor/logs/

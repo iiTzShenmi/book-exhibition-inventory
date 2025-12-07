@@ -348,6 +348,10 @@ textarea:focus {
 /* Top sellers */
 .top-sell {
   margin: 14px 0 28px;
+  background: linear-gradient(135deg, rgba(47, 107, 255, 0.06), rgba(255, 138, 92, 0.06));
+  border: 1px solid rgba(47, 107, 255, 0.12);
+  border-radius: var(--radius-lg);
+  padding: 16px;
 }
 
 .book-scroll {
@@ -375,6 +379,28 @@ textarea:focus {
   padding: 14px;
   text-align: center;
   box-shadow: var(--shadow-soft);
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.25s ease;
+}
+
+.book-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(47, 107, 255, 0.07), transparent 38%),
+              radial-gradient(circle at 80% 0%, rgba(255, 138, 92, 0.08), transparent 40%);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.book-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow);
+}
+
+.book-card:hover::after {
+  opacity: 1;
 }
 
 .book-cover {
@@ -385,6 +411,27 @@ textarea:focus {
   margin-bottom: 10px;
   box-shadow: 0 10px 25px rgba(47, 107, 255, 0.28);
   overflow: hidden;
+}
+
+.book-rank-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(18, 24, 38, 0.72);
+  color: #fff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  z-index: 1;
+}
+
+.hot-dot {
+  color: #ff9a3d;
+  font-size: 1rem;
 }
 
 .book-cover img {

@@ -7,6 +7,7 @@ import json
 import io
 import urllib.parse
 import urllib.request
+import subprocess
 from datetime import datetime
 from collections import defaultdict, Counter
 from sqlalchemy import text, func
@@ -23,6 +24,7 @@ from flask import (
     url_for,
 )
 from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
+from database.models import ViewEvent
 from recommender import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -43,7 +45,10 @@ if not ADMIN_PASSWORD_HASH:
 DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{DB_PATH}"
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or f"sqlite:///{DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.secret_key = (
     os.environ.get("FLASK_SECRET_KEY")
@@ -166,19 +171,36 @@ def export_db_to_csv():
                     inv.title,
                     "True" if (inv.qty_on_hand or 0) > 0 else "False",
                     inv.author or "",
-        ])
+                ])
     print("[export_db_to_csv] DB -> CSV export complete.")
 
 
 def create_backup():
-    """Create timestamped copies of DB and CSV."""
+    """Create timestamped backups (Postgres: pg_dump; SQLite: file copy) plus CSV."""
     export_db_to_csv()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    db_backup = os.path.join(BACKUP_DIR, f"inventory_{ts}.db")
     csv_backup = os.path.join(BACKUP_DIR, f"inventory_{ts}.csv")
-    shutil.copy2(DB_PATH, db_backup)
     shutil.copy2(CSV_PATH, csv_backup)
-    return {"db": db_backup, "csv": csv_backup, "timestamp": ts}
+
+    if is_postgres() and DATABASE_URL:
+        dump_path = os.path.join(BACKUP_DIR, f"inventory_{ts}.sql")
+        try:
+            result = subprocess.run(
+                ["pg_dump", DATABASE_URL],
+                check=True,
+                capture_output=True,
+            )
+            with open(dump_path, "wb") as f:
+                f.write(result.stdout)
+            print(f"[backup] pg_dump saved to {dump_path}")
+            return {"db": dump_path, "csv": csv_backup, "timestamp": ts}
+        except Exception as exc:
+            print(f"[backup] pg_dump failed: {exc}")
+            return {"db": None, "csv": csv_backup, "timestamp": ts, "error": str(exc)}
+    else:
+        db_backup = os.path.join(BACKUP_DIR, f"inventory_{ts}.db")
+        shutil.copy2(DB_PATH, db_backup)
+        return {"db": db_backup, "csv": csv_backup, "timestamp": ts}
 
 
 def ensure_hourly_backup():
@@ -349,6 +371,9 @@ def generate_invite_code(length: int = 10) -> str:
     alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
+def is_postgres():
+    return bool(DATABASE_URL) and DATABASE_URL.startswith("postgresql://")
+
 
 def ensure_admin_email_column():
     """Ensure admin_user table has email column (SQLite-friendly)."""
@@ -360,6 +385,58 @@ def ensure_admin_email_column():
             conn.commit()
     if "admin_invite" not in inspector.get_table_names():
         AdminInvite.__table__.create(db.engine)
+    if "view_event" not in inspector.get_table_names():
+        ViewEvent.__table__.create(db.engine)
+
+
+def get_top_sellers(limit=8):
+    """Compute top titles from DB view events; fallback to recent updates."""
+    sellers = []
+    cutoff = None
+
+    counts_query = (
+        db.session.query(ViewEvent.title, func.count(ViewEvent.id).label("cnt"))
+        .filter(ViewEvent.title != None)  # noqa: E711
+    )
+    if cutoff:
+        counts_query = counts_query.filter(ViewEvent.created_at >= cutoff)
+    rows = (
+        counts_query.group_by(ViewEvent.title)
+        .order_by(func.count(ViewEvent.id).desc())
+        .limit(limit * 2)
+        .all()
+    )
+
+    if rows:
+        top_titles = [r.title for r in rows]
+        title_map = {
+            bt.title: bt
+            for bt in BookTitle.query.filter(BookTitle.title.in_(top_titles)).all()
+        }
+        for title, cnt in rows[:limit]:
+            bt = title_map.get(title)
+            sellers.append(
+                {
+                    "title": title,
+                    "cover": cover_url_for_title(bt),
+                    "count": cnt,
+                }
+            )
+
+    if not sellers:
+        top_titles = (
+            BookTitle.query.join(Inventory)
+            .order_by(Inventory.updated_at.desc())
+            .limit(limit)
+            .all()
+        )
+        for bt in top_titles:
+            sellers.append({
+                "title": bt.title,
+                "cover": cover_url_for_title(bt),
+                "count": None,
+            })
+    return sellers[:limit]
 
 
 def ensure_default_admin():
@@ -378,6 +455,20 @@ def ensure_default_admin():
     db.session.add(user)
     db.session.commit()
     log_action("seed_admin", target=username, details=f"created default admin user (email={email})")
+    db.session.commit()
+
+
+def log_view_event(title, source=None, actor=None):
+    """Persist a view event for top-seller aggregation."""
+    clean_title = (title or "").strip()
+    if not clean_title:
+        return
+    evt = ViewEvent(
+        title=clean_title,
+        source=(source or "").strip() or None,
+        actor=(actor or "").strip() or None,
+    )
+    db.session.add(evt)
     db.session.commit()
 
 
@@ -724,20 +815,7 @@ def inject_is_admin():
 # 🏠 Homepage (public)
 @app.route("/")
 def home():
-    top_titles = (
-        BookTitle.query.join(Inventory)
-        .filter(BookTitle.cover_link != None)  # noqa: E711
-        .order_by(Inventory.updated_at.desc())
-        .limit(8)
-        .all()
-    )
-    top_sellers = [
-        {
-            "title": t.title,
-            "cover": cover_url_for_title(t),
-        }
-        for t in top_titles
-    ]
+    top_sellers = get_top_sellers(limit=8)
     return render_template(
         "home.html",
         title="書展庫存系統",
@@ -1591,6 +1669,18 @@ def logout():
     return redirect(url_for("home"))
 
 
+@app.route("/api/view_event", methods=["POST"])
+def api_view_event():
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "message": "title required"}), 400
+    source = (data.get("source") or "").strip() or None
+    actor = session.get("admin_user") or (data.get("actor") or "").strip() or None
+    log_view_event(title, source=source, actor=actor)
+    return jsonify({"success": True})
+
+
 @app.route("/admin/backup", methods=["POST"])
 def admin_backup():
     if not session.get("is_admin"):
@@ -1630,3 +1720,4 @@ def export_audit_csv():
         }
     )
     return resp
+

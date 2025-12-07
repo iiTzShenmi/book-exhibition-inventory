@@ -44,10 +44,6 @@ Helper scripts for maintaining book metadata.
   - Manual set: `python tools/fetch_topics.py --set-title "書名" --set-topics "財經企管,職場應對"`
 - Missing results are logged to `tools/missing_topics.txt`.
 
-## Generate admin security code
-- Purpose: Produce a deterministic security code for admin registration (requires username/email).
-- Run: `python tools/generate_security_code.py --username alice --email alice@gmail.com`
-
 ## Create admin invite code (no user details)
 - Purpose: Create a random invite code stored in DB, no username/email needed.
 - Run: `python tools/create_admin_code.py --memo "for Alice"` (optional memo)
