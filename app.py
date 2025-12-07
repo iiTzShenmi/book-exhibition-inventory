@@ -530,8 +530,10 @@ def log_action(action, target=None, details=None):
 
 def initialize_app():
     """Run one-time startup tasks."""
+    print("[init] starting app initialization")
     with app.app_context():
         db.create_all()
+        print("[init] tables ensured")
         ensure_admin_email_column()
         ensure_default_admin()
         ensure_title_cover_column()
@@ -539,7 +541,12 @@ def initialize_app():
         migrate_legacy_books_into_inventory()
         drop_legacy_book_table()
         sync_csv_to_db()
-initialize_app()
+    print("[init] done")
+if not os.environ.get("SKIP_INIT"):
+    initialize_app()
+else:
+    print("[init] SKIP_INIT set; initialization skipped")
+print("\n[init] create_all done\n")
 
 def cabinet_type_name(cabinet):
     """Return the normalized cabinet type string."""

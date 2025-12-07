@@ -39,11 +39,12 @@ def connect_sqlite(path: Path):
         raise FileNotFoundError(f"SQLite DB not found at {path}")
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    conn.text_factory = lambda b: b.decode("utf-8", errors="replace")
     return conn
 
 
 def connect_postgres(url: str):
-    engine = create_engine(url, future=True)
+    engine = create_engine(url, future=True, connect_args={"options": "-c client_encoding=UTF8"})
     return engine
 
 
@@ -84,7 +85,13 @@ def migrate_table(sqlite_conn, pg_engine, table_name: str):
     inserted = 0
     with pg_engine.begin() as conn:
         for row in rows:
-            conn.execute(insert_sql, dict(row))
+            payload = {}
+            for k, v in dict(row).items():
+                if isinstance(v, bytes):
+                    payload[k] = v.decode("utf-8", errors="replace")
+                else:
+                    payload[k] = v
+            conn.execute(insert_sql, payload)
             inserted += 1
 
     print(f"  Inserted {inserted} rows into Postgres.{os.linesep}")
