@@ -76,6 +76,10 @@ def sync_csv_to_db():
     CSV columns supported:
     - cabinet_name, title, qty_or_bool, author (optional)
     """
+    # Skip when running against remote DB unless explicitly enabled
+    if is_postgres() and not os.environ.get("ENABLE_CSV_SYNC"):
+        print("[sync_csv_to_db] skipped (remote DB detected; set ENABLE_CSV_SYNC=1 to allow)")
+        return
     if not os.path.exists(CSV_PATH):
         print(f"[sync_csv_to_db] CSV not found: {CSV_PATH}")
         return
@@ -1720,4 +1724,3 @@ def export_audit_csv():
         }
     )
     return resp
-
