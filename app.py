@@ -251,6 +251,8 @@ def ensure_hourly_backup():
 
 def ensure_cabinet_type_column():
     """Ensure cabinet table has a type column for main/reserve tagging."""
+    if is_postgres():
+        return  # schema already includes type; PRAGMA not supported
     with db.engine.connect() as conn:
         result = conn.execute(text("PRAGMA table_info(cabinet)"))
         columns = [row[1] for row in result]
@@ -266,6 +268,8 @@ def ensure_cabinet_type_column():
 
 def ensure_author_column():
     """Ensure the legacy book table has an author column (for migration)."""
+    if is_postgres():
+        return  # legacy sqlite-only migration
     with db.engine.connect() as conn:
         result = conn.execute(text("PRAGMA table_info(book)"))
         columns = [row[1] for row in result]
@@ -276,6 +280,8 @@ def ensure_author_column():
 
 def ensure_title_cover_column():
     """Ensure BookTitle has a cover_link column for cover lookups."""
+    if is_postgres():
+        return  # column exists in model; PRAGMA not supported
     with db.engine.connect() as conn:
         result = conn.execute(text("PRAGMA table_info(book_title)"))
         columns = [row[1] for row in result]
@@ -286,6 +292,8 @@ def ensure_title_cover_column():
 
 def migrate_legacy_books_into_inventory():
     """One-time migration: move rows from old book table into new normalized tables."""
+    if is_postgres():
+        return  # legacy sqlite-only migration
     with db.engine.connect() as conn:
         has_legacy = conn.execute(
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='book'")
