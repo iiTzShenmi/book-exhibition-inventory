@@ -353,6 +353,8 @@ def migrate_legacy_books_into_inventory():
 
 def drop_legacy_book_table():
     """Remove legacy book table after migration to avoid confusion."""
+    if is_postgres():
+        return
     with db.engine.connect() as conn:
         has_legacy = conn.execute(
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='book'")
