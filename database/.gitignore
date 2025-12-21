@@ -1,0 +1,33 @@
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# CSV files (except template)
+*.csv
+!inventory.csv.example
+
+# Backup files
+backups/*.db
+backups/*.csv
+backups/*.sql
+
+# Temporary files
+*.txt
+!README.md
+
+# Reports (generated)
+tools/reports/*.tsv
+tools/reports/*.csv
+tools/reports/*.txt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Keep directory structure
+!backups/.gitkeep
+!tools/reports/.gitkeep
+!logs/.gitkeep
+

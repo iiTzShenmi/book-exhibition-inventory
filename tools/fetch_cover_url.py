@@ -29,7 +29,7 @@ from database.tools.drop_book_csv_missing import drop_titles as drop_missing_tit
 from database.tools.drop_book_csv_missing import load_titles as load_missing_titles
 
 MISSING_LOG = os.path.join(SCRIPT_DIR, "missing_covers.txt")
-MISSING_TITLES_FILE = os.path.join(ROOT_DIR, "database", "titles_not_in_csv.txt")
+MISSING_TITLES_FILE = os.path.join(ROOT_DIR, "database", "logs", "titles_not_in_csv.txt")
 
 BASE_URL = "https://bookzone.cwgv.com.tw"
 SEARCH_PATH = "/search"

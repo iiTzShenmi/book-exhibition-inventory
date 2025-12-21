@@ -83,10 +83,12 @@ def score_profile(query: str, profile: BookProfile, weights: dict | None = None)
         return 0.0
 
     title_score = SequenceMatcher(None, q_norm, title_norm).ratio() * weights.get("title", 1.0)
+
     if q_norm in title_norm:
         title_score += weights.get("title_substring_bonus", 0.0)
 
     query_tokens = set(_tokenize(query))
+
     topic_tokens = set()
     for t in profile.topics or []:
         topic_tokens.update(_tokenize(t))
@@ -131,3 +133,5 @@ def suggest_for_missing_title(
             best_by_title[key] = (score, prof)
 
     return sorted(best_by_title.values(), key=lambda pair: pair[0], reverse=True)[:top]
+
+

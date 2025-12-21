@@ -1,5 +1,7 @@
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.orm import validates
+from sqlalchemy import event
 
 db = SQLAlchemy()
 
@@ -30,12 +32,52 @@ class Inventory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title_id = db.Column(db.Integer, db.ForeignKey("book_title.id"), nullable=False)
     cabinet_id = db.Column(db.Integer, db.ForeignKey("cabinet.id"), nullable=False)
-    qty_on_hand = db.Column(db.Integer, nullable=False, default=0)
-    qty_reserved = db.Column(db.Integer, nullable=False, default=0)
+    in_stock = db.Column(db.Boolean, nullable=False, default=True)
+    status = db.Column(db.String(20), nullable=False, default="active", index=True)
+    deleted_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     book_title = db.relationship("BookTitle", backref="inventories", lazy=True)
+
+    @validates("title_id")
+    def validate_title_id(self, key, value):
+        """Prevent NULL title_id from being set."""
+        # Allow None during object deletion/cascade operations
+        # SQLAlchemy may set to None temporarily during cascade deletes
+        # We'll catch actual NULL values at the database level and in event listeners
+        if value is None:
+            # Check if this object is being deleted (has no id or is marked for deletion)
+            # If so, allow None to pass through (will be caught by database constraint if it persists)
+            from sqlalchemy import inspect
+            try:
+                state = inspect(self)
+                if state.deleted or state.detached:
+                    # Object is being deleted, allow None to pass (will be deleted anyway)
+                    return value
+            except Exception:
+                # If we can't check state, be safe and reject None
+                pass
+            
+            raise ValueError(
+                "title_id cannot be NULL. This violates database constraints. "
+                "Ensure a valid BookTitle exists before creating Inventory."
+            )
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"title_id must be a positive integer, got: {value}")
+        return value
+
+    @validates("cabinet_id")
+    def validate_cabinet_id(self, key, value):
+        """Prevent NULL cabinet_id from being set."""
+        if value is None:
+            raise ValueError(
+                "cabinet_id cannot be NULL. This violates database constraints. "
+                "Ensure a valid Cabinet exists before creating Inventory."
+            )
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"cabinet_id must be a positive integer, got: {value}")
+        return value
 
     @property
     def title(self):
@@ -45,9 +87,6 @@ class Inventory(db.Model):
     def author(self):
         return self.book_title.author if self.book_title else None
 
-    @property
-    def in_stock(self):
-        return (self.qty_on_hand or 0) > 0
 
 
 # Backward compatibility alias for existing imports
@@ -95,3 +134,43 @@ class ViewEvent(db.Model):
     source = db.Column(db.String(50))
     actor = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+class TopSellerSnapshot(db.Model):
+    __tablename__ = "top_seller_snapshot"
+
+    id = db.Column(db.Integer, primary_key=True)
+    limit = db.Column(db.Integer, nullable=False, default=8, index=True)
+    payload = db.Column(db.Text, nullable=False)
+    calculated_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
+# Event listener to catch any Inventory objects with NULL title_id before flush
+@event.listens_for(Inventory, "before_insert", propagate=True)
+@event.listens_for(Inventory, "before_update", propagate=True)
+def validate_inventory_before_flush(mapper, connection, target):
+    """Additional safety check: prevent NULL title_id/cabinet_id before database flush."""
+    from sqlalchemy import inspect
+    
+    # Skip validation if object is being deleted (cascade operations may set to None)
+    try:
+        state = inspect(target)
+        if state.deleted:
+            # Object is being deleted, skip validation (will be removed anyway)
+            return
+    except Exception:
+        # If we can't check state, proceed with validation
+        pass
+    
+    if target.title_id is None:
+        raise ValueError(
+            f"Inventory object (id={target.id if hasattr(target, 'id') and target.id else 'new'}) "
+            f"has NULL title_id. This will cause a database constraint violation. "
+            f"Check the code that created this Inventory object."
+        )
+    if target.cabinet_id is None:
+        raise ValueError(
+            f"Inventory object (id={target.id if hasattr(target, 'id') and target.id else 'new'}) "
+            f"has NULL cabinet_id. This will cause a database constraint violation. "
+            f"Check the code that created this Inventory object."
+        )

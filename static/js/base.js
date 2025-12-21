@@ -198,7 +198,7 @@
     const box = document.getElementById('book-modal-box');
     if (!overlay || !box) return;
 
-    fetch(`/book_details/${encodeURIComponent(title)}`)
+    fetch(`/book_details/${encodeURIComponent(title)}`, { cache: 'no-store' })
       .then(res => res.text())
       .then(html => {
         box.innerHTML = html;
@@ -264,10 +264,204 @@
 
   window.safeFetch = safeFetch;
 
+  function setupScannerFocus() {
+    const customerInput = document.querySelector('.customer-search input[name="q"]');
+    const adminInput = document.querySelector('#admin-search-form input[name="filter"]');
+    const targetInput = customerInput || adminInput;
+    if (!targetInput) return;
+
+    let scanBuffer = '';
+    let resetTimer = null;
+
+    const resetBuffer = () => {
+      scanBuffer = '';
+    };
+
+    document.addEventListener('keydown', (evt) => {
+      const target = evt.target;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (isInput) return;
+
+      if (evt.key.length === 1 && !evt.metaKey && !evt.ctrlKey && !evt.altKey) {
+        targetInput.focus();
+        scanBuffer += evt.key;
+        targetInput.value = scanBuffer;
+        clearTimeout(resetTimer);
+        resetTimer = setTimeout(resetBuffer, 400);
+      } else if (evt.key === 'Enter' && scanBuffer) {
+        evt.preventDefault();
+        targetInput.form?.requestSubmit?.();
+        const firstTarget = document.querySelector('[data-title]');
+        if (firstTarget && typeof window.openBookModal === 'function') {
+          const title = firstTarget.getAttribute('data-title');
+          if (title) {
+            window.openBookModal(title);
+          }
+        }
+        resetBuffer();
+      }
+    });
+
+    setInterval(() => {
+      const active = document.activeElement;
+      const activeTag = active && active.tagName;
+      const isTyping =
+        activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (active && active.isContentEditable);
+      if (document.visibilityState === 'visible' && !isTyping && active !== targetInput) {
+        targetInput.focus();
+      }
+    }, 5000);
+  }
+
+  function setupOfflineBanner() {
+    const banner = document.createElement('div');
+    banner.className = 'offline-banner';
+    banner.textContent = '⚡ Offline - changes queued until connection returns';
+    banner.style.position = 'fixed';
+    banner.style.bottom = '12px';
+    banner.style.left = '12px';
+    banner.style.right = '12px';
+    banner.style.zIndex = '9999';
+    banner.style.background = '#1f2937';
+    banner.style.color = '#f9fafb';
+    banner.style.padding = '12px 16px';
+    banner.style.borderRadius = '8px';
+    banner.style.display = 'none';
+    banner.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
+    document.body.appendChild(banner);
+
+    const toggle = (offline) => {
+      banner.style.display = offline ? 'flex' : 'none';
+    };
+
+    window.addEventListener('offline', () => toggle(true));
+    window.addEventListener('online', () => toggle(false));
+    toggle(!navigator.onLine);
+  }
+
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+      console.warn('Service worker registration failed', err);
+    });
+  }
+
+  function headersWithCsrf(token) {
+    const freshToken = token
+      || window.csrfToken
+      || document.querySelector('meta[name="csrf-token"]')?.content
+      || '';
+    return { 'X-CSRF-Token': freshToken };
+  }
+
+  function bindInlineForms() {
+    if (window._inlineFormsBound) return;
+    document.addEventListener('submit', async (e) => {
+      const form = e.target;
+      if (!form || !form.matches || !form.matches('.inline-form')) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const formData = new FormData(form);
+      const formToken = formData.get('csrf_token') || '';
+      try {
+        const res = await fetch(form.action, {
+          method: form.method || 'POST',
+          headers: headersWithCsrf(formToken),
+          body: formData,
+        });
+        const contentType = res.headers.get('content-type') || '';
+        const data = contentType.includes('application/json') ? await res.json() : null;
+        if (data && data.success) {
+          showToast(data.message || '狀態已更新', true);
+          const title = data.title;
+          if (title && typeof window.openBookModal === 'function') {
+            window.openBookModal(title);
+          }
+        } else if (data && !data.success) {
+          showToast(data.message || '操作失敗', false);
+        } else if (!res.ok) {
+          showToast('操作失敗', false);
+        }
+      } catch (err) {
+        console.error('Inline form submit failed', err);
+        showToast('操作失敗', false);
+      }
+    });
+    window._inlineFormsBound = true;
+  }
+
+  function bindReplenishHints() {
+    if (window._replenishHintsBound) return;
+    document.addEventListener('click', async (e) => {
+      const hint = e.target.closest('.replenish-hint');
+      if (!hint) return;
+      e.preventDefault();
+
+      const title = hint.dataset.title;
+      const displayCabinetId = Number(hint.dataset.displayCabinetId);
+      const reserveCabinetId = Number(hint.dataset.reserveCabinetId);
+      const reserveBookId = Number(hint.dataset.reserveBookId);
+      const reserveCabinetName = hint.dataset.reserveCabinetName || '備書櫃';
+
+      if (!title || !displayCabinetId || !reserveCabinetId || !reserveBookId) {
+        showToast('補貨資訊不完整', false);
+        return;
+      }
+
+      if (!window.confirm(`確定從「${reserveCabinetName}」補貨至展示櫃？`)) return;
+
+      hint.style.opacity = '0.6';
+      hint.style.pointerEvents = 'none';
+      const originalText = hint.textContent;
+      hint.textContent = '補貨中...';
+
+      try {
+        const res = await fetch(`/replenish/${encodeURIComponent(title)}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...headersWithCsrf(),
+          },
+          body: JSON.stringify({
+            display_cabinet_id: displayCabinetId,
+            reserve_cabinet_id: reserveCabinetId,
+            reserve_book_id: reserveBookId,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          showToast(data.message || '補貨失敗', false);
+          hint.style.opacity = '1';
+          hint.style.pointerEvents = 'auto';
+          hint.textContent = originalText;
+          return;
+        }
+
+        showToast(data.message || '補貨成功 ✅', true);
+        if (typeof window.openBookModal === 'function') {
+          window.openBookModal(title);
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('補貨失敗', false);
+        hint.style.opacity = '1';
+        hint.style.pointerEvents = 'auto';
+        hint.textContent = originalText;
+      }
+    });
+    window._replenishHintsBound = true;
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     resetAdminSearchForm();
     bindEscapeToCloseModals();
     document.addEventListener('click', handleNotificationTabs);
+    setupScannerFocus();
+    setupOfflineBanner();
+    registerServiceWorker();
+    bindInlineForms();
+    bindReplenishHints();
 
     const notifBtn = document.getElementById('notif-btn');
     if (notifBtn) {

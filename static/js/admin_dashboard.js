@@ -18,20 +18,26 @@
   let currentCabinetBooksId = null;
   let pendingMove = null;
 
-  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || window.csrfToken || '';
+  const getFreshCsrfToken = (token = null) => (
+    token
+      || window.csrfToken
+      || document.querySelector('meta[name="csrf-token"]')?.content
+      || ''
+  );
 
-  const headersWithCsrf = (extra = {}) => ({
-    ...extra,
-    'X-CSRF-Token': csrfToken,
+  const headersWithCsrf = (token = null) => ({
+    'X-CSRF-Token': getFreshCsrfToken(token),
   });
 
   async function refreshModal(title) {
     const box = document.getElementById('book-modal-box');
     if (!box) return;
-    const res = await fetch(`/book_details/${encodeURIComponent(title)}`);
+    const res = await fetch(`/book_details/${encodeURIComponent(title)}`, { cache: 'no-store' });
     if (res.ok) {
       const html = await res.text();
       box.innerHTML = html;
+      // Re-bind inline forms after modal content is updated
+      // The event listener should work via delegation, but ensure it's set up
     }
   }
 
@@ -343,7 +349,7 @@ async function toggleCabinetType(id) {
         row.className = 'cabinet-book-row';
         row.dataset.bookId = book.id;
         row.dataset.bookTitle = book.title;
-        row.dataset.qty = book.qty_on_hand || 0;
+        row.dataset.qty = book.in_stock ? 1 : 0;  // Quantity tracking removed - use in_stock boolean
 
         const titleSpan = document.createElement('span');
         titleSpan.className = 'cabinet-book-title';
@@ -438,7 +444,7 @@ async function toggleCabinetType(id) {
         fd.append('title', data.title || bookName);
         fd.append('cabinet_id', data.cabinet_id || cabinetId);
         fd.append('amount', qtyRemoved);
-        fd.append('csrf_token', window.csrfToken || '');
+        fd.append('csrf_token', getFreshCsrfToken());
         await fetch('/add_book', {
           method: 'POST',
           body: fd,
@@ -803,7 +809,7 @@ async function toggleCabinetType(id) {
             if (res.success && res.action === 'add') {
               undo = async () => {
                 const fd = new FormData();
-                fd.append('csrf_token', window.csrfToken || '');
+                fd.append('csrf_token', getFreshCsrfToken());
                 fd.append('add_or_remove', 'remove');
                 fd.append('cabinet', res.cabinet_name);
                 await fetch(`/modify_cabinet/${encodeURIComponent(res.title)}`, {
@@ -818,7 +824,7 @@ async function toggleCabinetType(id) {
               const qty = Math.max(Number(res.qty_removed) || 1, 1);
               undo = async () => {
                 const fd = new FormData();
-                fd.append('csrf_token', window.csrfToken || '');
+                fd.append('csrf_token', getFreshCsrfToken());
                 fd.append('title', res.title);
                 fd.append('cabinet_id', res.cabinet_id);
                 fd.append('amount', qty);
@@ -850,50 +856,132 @@ async function toggleCabinetType(id) {
     });
   }
 
-function bindInlineForms() {
-  document.addEventListener('submit', e => {
-    if (!e.target.matches('.inline-form')) return;
-    e.preventDefault();
-    const form = e.target;
+  // Set up inline form handler once (event delegation works for dynamically added forms)
+  // This must be set up immediately when script loads, not in a function
+  if (!window._inlineFormsBound) {
+    document.addEventListener('submit', function(e) {
+      const form = e.target;
+      if (!form || !form.matches || !form.matches('.inline-form')) return;
+      
+      console.log('[toggle] Form submit intercepted:', form.action);
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
 
-    if (!form.action || form.action === '[object HTMLSelectElement]') {
-      console.warn('Invalid form action:', form.action);
-      showToast('無效的表單路徑', false);
-      return;
-    }
+      if (!form.action || form.action === '[object HTMLSelectElement]') {
+        console.warn('Invalid form action:', form.action);
+        if (window.showToast) window.showToast('無效的表單路徑', false);
+        return;
+      }
 
-    if (form.dataset.skipConfirm !== 'true') {
-      const label = form.dataset.confirmLabel || '確認要送出嗎？';
-      if (!window.confirm(label)) return;
-    }
+      if (form.dataset.skipConfirm !== 'true') {
+        const label = form.dataset.confirmLabel || '確認要送出嗎？';
+        if (!window.confirm(label)) return;
+      }
 
-    const formData = new FormData(form);
-    fetch(form.action, {
-      method: 'POST',
-      headers: headersWithCsrf(),
+      const formData = new FormData(form);
+      const formToken = formData.get('csrf_token') || '';
+      fetch(form.action, {
+        method: 'POST',
+        headers: headersWithCsrf(formToken),
         body: formData,
       })
-        .then(r => r.json())
+        .then(async r => {
+          const contentType = r.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            return r.json();
+          } else {
+            const text = await r.text();
+            console.error('Non-JSON response:', text);
+            throw new Error('伺服器回應格式錯誤');
+          }
+        })
         .then(async data => {
           if (data.success) {
-            showToast('狀態已更新 ✅', true);
+            if (window.showToast) window.showToast(data.message || '狀態已更新 ✅', true);
             const title = data.title || document.querySelector('#book-modal-box h2')?.textContent?.trim();
             if (title) {
-              await refreshBookCard(title);
-              await refreshModal(title);
+              // Use window functions that are exposed
+              if (window.refreshBookCard) await window.refreshBookCard(title);
+              if (window.refreshModal) await window.refreshModal(title);
               // If we're on admin search results, also refresh the matching card in the grid
               const searchCard = document.getElementById(`card-${CSS.escape(title)}`);
-              if (searchCard) {
-                await refreshBookCard(title);
+              if (searchCard && window.refreshBookCard) {
+                await window.refreshBookCard(title);
               }
             }
           } else {
-            showToast(data.message || '更新失敗', false);
+            if (window.showToast) window.showToast(data.message || '更新失敗', false);
           }
         })
-        .catch(() => showToast('網路錯誤', false));
-    });
+        .catch(err => {
+          console.error('Toggle error:', err);
+          if (window.showToast) window.showToast(err.message || '網路錯誤', false);
+        });
+    }, true); // Use capture phase to catch early
+    window._inlineFormsBound = true;
   }
+
+  // Keep the function for backwards compatibility
+  function bindInlineForms() {
+    // Already bound via event delegation above
+  }
+
+  // Handle replenish hint clicks
+  document.addEventListener('click', async e => {
+    const hint = e.target.closest('.replenish-hint');
+    if (!hint) return;
+    e.preventDefault();
+    
+    const title = hint.dataset.title;
+    const displayCabinetId = Number(hint.dataset.displayCabinetId);
+    const reserveCabinetId = Number(hint.dataset.reserveCabinetId);
+    const reserveBookId = Number(hint.dataset.reserveBookId);
+    const reserveCabinetName = hint.dataset.reserveCabinetName || '備書櫃';
+
+    if (!window.confirm(`確定從「${reserveCabinetName}」補貨至展示櫃？`)) return;
+
+    hint.style.opacity = '0.6';
+    hint.style.pointerEvents = 'none';
+    const originalText = hint.textContent;
+    hint.textContent = '補貨中...';
+
+    try {
+      const res = await fetch(`/replenish/${encodeURIComponent(title)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headersWithCsrf(),
+        },
+        body: JSON.stringify({
+          display_cabinet_id: displayCabinetId,
+          reserve_cabinet_id: reserveCabinetId,
+          reserve_book_id: reserveBookId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.message || '補貨失敗', false);
+        hint.style.opacity = '1';
+        hint.style.pointerEvents = 'auto';
+        hint.textContent = originalText;
+        return;
+      }
+
+      showToast(data.message || '補貨成功 ✅', true);
+      // Refresh the modal and book cards
+      await refreshModal(title);
+      await refreshBookCard(title);
+      const affectedTitles = data.affected_titles || [title];
+      await refreshBookCardsForTitles(affectedTitles);
+    } catch (err) {
+      console.error(err);
+      showToast('補貨失敗', false);
+      hint.style.opacity = '1';
+      hint.style.pointerEvents = 'auto';
+      hint.textContent = originalText;
+    }
+  });
 
   function bindActionToggleButtons() {
     document.querySelectorAll('.action-btn').forEach(btn => {
@@ -1098,6 +1186,7 @@ function bindInlineForms() {
   window.closeCabinetBooksModal = closeCabinetBooksModal;
   window.closeMoveBookModal = closeMoveBookModal;
   window.refreshBookCard = refreshBookCard;
+  window.refreshModal = refreshModal;
   window.refreshDashboardPage = () => window.location.reload();
   window.runBackup = runBackup;
   const resetBtn = document.getElementById('admin-reset-btn');

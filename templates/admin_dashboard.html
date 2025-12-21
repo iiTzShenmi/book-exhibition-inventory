@@ -28,7 +28,20 @@
         </div>
         {% if entry.notes %}
         {% for note in entry.notes %}
-        <div class="reserve-hint">{{ note }}</div>
+        <div class="reserve-hint{% if entry.replenish %} replenish-hint{% endif %}" 
+            {% if entry.replenish %}
+            data-title="{{ title }}"
+            data-display-cabinet-id="{{ entry.replenish.display_cabinet_id }}"
+            data-reserve-cabinet-id="{{ entry.replenish.reserve_cabinet_id }}"
+            data-reserve-book-id="{{ entry.replenish.reserve_book_id }}"
+            data-reserve-cabinet-name="{{ entry.replenish.reserve_cabinet_name }}"
+            {% endif %}>
+          {% if entry.replenish %}
+          📦 請從「{{ entry.replenish.reserve_cabinet_name }}」補貨
+          {% else %}
+          {{ note }}
+          {% endif %}
+        </div>
         {% endfor %}
         {% endif %}
         {% endfor %}
@@ -47,7 +60,7 @@
       <div class="card__header">
         <span class="chip chip--soft">近期操作</span>
         <h3>Audit Trail</h3>
-        <a class="btn btn--secondary btn--sm" href="{{ url_for('audit_page') }}">檢視全部</a>
+        <a class="btn btn--secondary btn--sm" href="{{ url_for('admin.audit_page') }}">檢視全部</a>
       </div>
     {% if audit_logs %}
     <div class="audit-list">
@@ -203,6 +216,7 @@
     <div class="modal-box small">
       <h3>移動書籍</h3>
       <form id="move-book-form" class="move-book-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" id="move-book-id">
         <input type="hidden" id="move-source-cabinet-id">
         <div class="field">
@@ -227,4 +241,26 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/admin_dashboard.js') }}" defer></script>
+<script>
+  (() => {
+    // Auto-focus first result card after search; fallback to search input
+    window.requestAnimationFrame(() => {
+      {% if has_search %}
+      const firstCard = document.querySelector('.admin-grid .card');
+      if (firstCard) {
+        firstCard.setAttribute('tabindex', '-1');
+        firstCard.focus({ preventScroll: true });
+        firstCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else {
+        // Fallback to admin search input
+        const input = document.querySelector('#admin-search-form input[name="filter"]');
+        if (input) {
+          input.focus({ preventScroll: true });
+          input.select?.();
+        }
+      }
+      {% endif %}
+    });
+  })();
+</script>
 {% endblock %}

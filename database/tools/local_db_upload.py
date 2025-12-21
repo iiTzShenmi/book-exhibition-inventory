@@ -1,26 +1,51 @@
-import os
-import sqlite3
-from pathlib import Path
+"""
+⚠️ DEPRECATED: This file is deprecated. Use `db_sync.py` instead.
 
+Upload data from the local SQLite inventory DB into the Postgres database (Render),
+with a preflight duplicate check on book titles.
+
+NEW USAGE (recommended):
+  python database/tools/db_sync.py upload
+  python database/tools/db_sync.py upload --allow-duplicates
+
+OLD USAGE (deprecated):
+  python database/tools/local_db_upload.py
+  python database/tools/local_db_upload.py --allow-duplicates
+
+Environment:
+  - SQLITE_PATH (optional) to override the SQLite DB path (defaults to database/inventory.db)
+  - DATABASE_URL (required) the Render Postgres URL
+"""
+
+import argparse
+import os
+import re
+import sqlite3
+from collections import defaultdict
+from pathlib import Path
+from typing import Dict, List
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from tools import env_loader  # loads .env into os.environ
 from sqlalchemy import create_engine, text
 
 
 # ---------- CONFIG ----------
 
-# Path to your local SQLite DB (defaults to repo_root/database/inventory.db)
-REPO_ROOT = Path(__file__).resolve().parent.parent
 SQLITE_PATH = Path(os.environ.get("SQLITE_PATH") or REPO_ROOT / "database" / "inventory.db")
 
-# Postgres URL from Render (set via env var)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Please set DATABASE_URL to your Render PostgreSQL URL before running this script.")
 
-# Render sometiSELECT * FROM book_titlemes gives postgres://, SQLAlchemy prefers postgresql+psycopg2://
+# Render sometimes gives postgres://, SQLAlchemy prefers postgresql+psycopg2://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
-# Tables to migrate (order matters for FK relationships)
 TABLES = [
     "admin_user",
     "admin_invite",
@@ -57,12 +82,54 @@ def truncate_tables(engine, tables):
                 print(f"  TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;")
                 conn.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;"))
             except Exception as exc:
-                # Some managed Postgres (e.g., limited roles) disallow replication_role changes.
-                # Fallback: delete all rows and reset identity.
                 print(f"    truncate failed for {table} ({exc}); falling back to DELETE/IDENTITY reset.")
                 conn.execute(text(f"DELETE FROM {table};"))
                 conn.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), 1, false);"))
     print("Truncate done.\n")
+
+
+def normalize_title(title: str) -> str:
+    """Lightweight normalization to catch obvious dupes (spacing/punctuation/variant characters)."""
+    normalized = (title or "").strip().lower()
+    replacements = {
+        "　": "",  # full-width space
+        " ": "",
+        "．": ".",
+        "・": "",
+        "･": "",
+        "祕": "秘",
+    }
+    for src, dst in replacements.items():
+        normalized = normalized.replace(src, dst)
+    normalized = re.sub(r"[\\s\\t\\r\\n\\-_.。．,，、:：;；!！?？'\"“”‘’()（）【】《》「」『』·•／/]+", "", normalized)
+    return normalized
+
+
+def find_duplicate_titles(sqlite_conn) -> Dict[str, List[sqlite3.Row]]:
+    rows = sqlite_conn.execute("SELECT id, title, author, topics, cover_link FROM book_title").fetchall()
+    buckets: Dict[str, List[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        key = normalize_title(row["title"])
+        if key:
+            buckets[key].append(row)
+    return {k: v for k, v in buckets.items() if len(v) > 1}
+
+
+def render_duplicates(dupes: Dict[str, List[sqlite3.Row]]):
+    print("[validation] Potential duplicate titles detected:")
+    for key, items in dupes.items():
+        print(f"  key='{key}' count={len(items)}")
+        for row in items:
+            flags = []
+            if not row["topics"]:
+                flags.append("missing topics")
+            if not row["cover_link"]:
+                flags.append("missing cover_link")
+            flag_text = f" [{' | '.join(flags)}]" if flags else ""
+            print(
+                f"    id={row['id']:>4} | title={row['title']} | author={row['author'] or '-'}{flag_text}"
+            )
+    print("To proceed anyway, rerun with --allow-duplicates.\n")
 
 
 def migrate_table(sqlite_conn, pg_engine, table_name: str):
@@ -77,7 +144,7 @@ def migrate_table(sqlite_conn, pg_engine, table_name: str):
         return
 
     cols = rows[0].keys()
-    col_list = ", ".join(f'"{c}"' for c in cols)  # quote column names
+    col_list = ", ".join(f'"{c}"' for c in cols)
     placeholders = ", ".join(f":{c}" for c in cols)
     insert_sql = text(f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})")
 
@@ -98,10 +165,7 @@ def migrate_table(sqlite_conn, pg_engine, table_name: str):
 
 
 def fix_sequences(pg_engine):
-    """
-    Ensure Postgres sequences are set to MAX(id) for each table,
-    so future inserts don't try to reuse existing IDs.
-    """
+    """Ensure Postgres sequences are set to MAX(id) for each table."""
     print("Fixing ID sequences in Postgres...")
 
     sequence_map = {
@@ -117,32 +181,48 @@ def fix_sequences(pg_engine):
     with pg_engine.begin() as conn:
         for table, seq in sequence_map.items():
             print(f"  Adjusting sequence {seq} for table {table}...")
-            conn.execute(text(f"""
-                SELECT setval(
-                    '{seq}',
-                    COALESCE((SELECT MAX(id) FROM {table}), 1),
-                    true
-                );
-            """))
+            conn.execute(
+                text(
+                    f"""
+                    SELECT setval(
+                        '{seq}',
+                        COALESCE((SELECT MAX(id) FROM {table}), 1),
+                        true
+                    );
+                    """
+                )
+            )
 
     print("Sequence fix complete.\n")
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Upload local SQLite data to Postgres with validation.")
+    parser.add_argument(
+        "--allow-duplicates",
+        action="store_true",
+        help="Proceed even if potential duplicate book titles are detected.",
+    )
+    args = parser.parse_args()
+
     print(f"Using SQLite: {SQLITE_PATH}")
     print(f"Using Postgres: {DATABASE_URL}\n")
 
     sqlite_conn = connect_sqlite(SQLITE_PATH)
+
+    duplicates = find_duplicate_titles(sqlite_conn)
+    if duplicates and not args.allow_duplicates:
+        render_duplicates(duplicates)
+        print("[abort] Resolve duplicates in SQLite before uploading to Postgres.")
+        return 1
+
     pg_engine = connect_postgres(DATABASE_URL)
 
-    # 1) Optional: clear Postgres tables first (recommended if DB is new / test data only)
     truncate_tables(pg_engine, TABLES)
 
-    # 2) Migrate each table
     for table in TABLES:
         migrate_table(sqlite_conn, pg_engine, table)
 
-    # 3) Fix sequences so future inserts auto-increment correctly
     fix_sequences(pg_engine)
 
     print("✅ Migration complete! You can now check your Postgres DB.")

@@ -10,15 +10,15 @@
   {% block extra_css %}{% endblock %}
 </head>
 
-<body class="{% if request.endpoint=='admin_dashboard' %}is-admin{% endif %}">
+<body class="{% if request.blueprint == 'admin' %}is-admin{% endif %}">
   <div class="page-shell">
     <div class="bg-grid"></div>
     <div class="bg-glow bg-glow--left"></div>
     <div class="bg-glow bg-glow--right"></div>
 
-    <header class="site-header {% if request.endpoint in ['admin_dashboard','audit_page'] %}site-header--admin{% endif %}">
+    <header class="site-header {% if request.blueprint == 'admin' %}site-header--admin{% endif %}">
       <div class="site-header__inner">
-        <a class="brand" href="{{ url_for('home') }}">
+        <a class="brand" href="{{ url_for('inventory.home') }}">
           <span class="brand__mark">📚</span>
           <span class="brand__text">
             <span class="eyebrow">Book Expo</span>
@@ -26,7 +26,7 @@
           </span>
         </a>
 
-        {% if request.endpoint in ['admin_dashboard','audit_page'] %}
+        {% if request.blueprint == 'admin' %}
         <div class="admin-header-buttons">
           <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
             🔔
@@ -35,24 +35,24 @@
           <button type="button" class="btn ghost logout-btn" onclick="refreshDashboardPage()">刷新面板</button>
           <button type="button" class="btn ghost logout-btn" onclick="handleAddBook()">新增書籍</button>
           <button type="button" class="btn ghost logout-btn" onclick="handleCabinetManager()">櫃位管理</button>
-          <a class="btn ghost logout-btn" href="{{ url_for('audit_page') }}">操作紀錄</a>
-          <a class="btn solid logout-btn" href="{{ url_for('logout') }}">登出</a>
+          <a class="btn ghost logout-btn" href="{{ url_for('admin.audit_page') }}">操作紀錄</a>
+          <a class="btn solid logout-btn" href="{{ url_for('auth.logout') }}">登出</a>
         </div>
         {% else %}
         <div class="header-actions">
-          <a class="pill-link" href="{{ url_for('login') }}">管理員專區</a>
+          <a class="pill-link" href="{{ url_for('auth.login') }}">管理員專區</a>
         </div>
         {% endif %}
       </div>
 
-      {% if request.endpoint == 'admin_dashboard' %}
+      {% if request.endpoint == 'admin.dashboard' %}
         <div class="admin-toolbar">
           <div class="admin-toolbar__top">
             <div class="toolbar-copy">
               <p class="eyebrow">展場控台</p>
               <h2>快速定位與整理庫存</h2>
               <p class="muted">用關鍵字、櫃位或作者，迅速找到展場中的任何一本書。</p>
-              <form id="admin-search-form" action="{{ url_for('admin_dashboard') }}" method="get" class="admin-search-form">
+              <form id="admin-search-form" action="{{ url_for('admin.dashboard') }}" method="get" class="admin-search-form">
                 <div class="admin-search-row">
                   <input type="text" name="filter" placeholder="輸入書名..." value="">
                   <div class="toolbar-buttons">
@@ -100,7 +100,7 @@
       {% endif %}
     </header>
 
-    {% if request.endpoint == 'admin_dashboard' %}
+    {% if request.endpoint == 'admin.dashboard' %}
     <div id="notif-overlay" class="modal-overlay" style="display:none;">
       <div class="modal-box medium notif-box">
         <div class="section-head">
@@ -123,13 +123,13 @@
     {% endif %}
 
     <main class="page-content">
-      {% if request.endpoint in ['home', 'search'] %}
+      {% if request.endpoint in ['inventory.home', 'api.search'] %}
       <section class="hero">
         <div class="hero__text">
           <p class="eyebrow">2025 書展現場</p>
           <h1>快速找到展場裡的每一本書</h1>
           <p class="muted">輸入書名、作者或關鍵字，立即查詢展示櫃或備書櫃的庫存狀態。</p>
-          <form action="{{ url_for('search') }}" method="get" class="customer-search">
+          <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
             <div class="search-box">
               <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
               <button class="btn btn--primary" type="submit">搜尋</button>
@@ -137,7 +137,7 @@
             <div class="hint-row">
               <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
               <span class="chip chip--soft">支援多櫃位</span>
-              {% set realtime_href = url_for('admin_dashboard') if is_admin else url_for('login') %}
+              {% set realtime_href = url_for('admin.dashboard') if is_admin else url_for('auth.login') %}
               <a class="chip chip--action" id="hint-realtime" href="{{ realtime_href }}">⚡ 即時庫存</a>
             </div>
           </form>
@@ -211,7 +211,7 @@
       const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
       const sendView = (title, source) => {
         if (!title) return;
-        fetch('{{ url_for("api_view_event") }}', {
+        fetch('{{ url_for("api.api_view_event") }}', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

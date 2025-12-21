@@ -1,28 +1,63 @@
-# Bytecode / caches
+# Python
 __pycache__/
-*.pyc
-
-# Virtualenvs / local env
-.env
-.venv/
+*.py[cod]
+*$py.class
+*.so
+.Python
 env/
 venv/
+ENV/
+.venv
 
-# Editor
+# Flask
+instance/
+.webassets-cache
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+database/inventory.db
+database/inventory.csv
+
+# Environment
+.env
+.env.local
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Local logs/backups/artifacts
-database/backups/
-database/*.db
-database/*.sqlite
-database/book_csv_missing.txt
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
 last_run.json
 
-# Tools and generated codes (keep local only)
-tools/create_admin_code.py
-tools/generate_security_code.py
-tools/.COMMAND
-tools/README.md
-tools/missing_*
-tools/topics_cache.json
+# Reports (generated)
+database/tools/reports/
+tools/missing_*.txt
+database/tools/book_csv_missing.txt
+database/titles_not_in_csv.txt
+
+# Empty directories (Flask creates these)
+instance/
+
+# Backups (keep structure, ignore files)
+database/backups/*.csv
+database/backups/*.db
+database/backups/*.sql
+!database/backups/.gitkeep
+
+# Prototypes
 prototypes/top_views_monitor/logs/

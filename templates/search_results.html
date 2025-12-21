@@ -41,8 +41,23 @@
         </div>
         {% if entry.notes %}
         {% for note in entry.notes %}
-        <div class="reserve-hint">
+        <div class="reserve-hint{% if entry.replenish and is_admin %} replenish-hint{% endif %}"
+             {% if entry.replenish and is_admin %}
+             data-title="{{ title }}"
+             data-display-cabinet-id="{{ entry.replenish.display_cabinet_id }}"
+             data-reserve-cabinet-id="{{ entry.replenish.reserve_cabinet_id }}"
+             data-reserve-book-id="{{ entry.replenish.reserve_book_id }}"
+             data-reserve-cabinet-name="{{ entry.replenish.reserve_cabinet_name }}"
+             {% endif %}>
           {{ note }}
+          {% if entry.replenish and is_admin %}
+          <div class="reserve-meta">
+            {{ entry.replenish.reserve_cabinet_name }} 備書可取
+          </div>
+          <button type="button" class="replenish-btn">
+            從「{{ entry.replenish.reserve_cabinet_name }}」補貨
+          </button>
+          {% endif %}
         </div>
         {% endfor %}
         {% endif %}
@@ -58,14 +73,20 @@
     <p class="muted">試試部分書名、主題關鍵字，或檢查看看這些建議。</p>
   </div>
   {% if suggestions %}
-  <div class="section-head suggest-head">
+  <div id="suggestions-section" class="section-head suggest-head">
     <p class="eyebrow">猜你想找</p>
     <h3>相關展場書籍</h3>
     <p class="muted">依書名與主題關鍵字推薦的候選項目。</p>
   </div>
   <div class="grid results-grid suggestion-grid">
     {% for item in suggestions %}
-    <article class="card result-card" data-title="{{ item.title }}" data-source="suggestion">
+    {% set cover = item.cover %}
+    <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ item.title }}" data-author="{{ item.author or '' }}" data-entries='{{ item.entries | tojson | safe }}' data-source="suggestion">
+      {% if cover %}
+      <div class="cover-pop">
+        <img src="{{ cover }}" alt="{{ item.title }}">
+      </div>
+      {% endif %}
       <div class="card__header">
         <span class="chip chip--soft">建議</span>
         <h3>{{ item.title }}</h3>
@@ -91,8 +112,20 @@
         </div>
         {% if entry.notes %}
         {% for note in entry.notes %}
-        <div class="reserve-hint">
+        <div class="reserve-hint{% if entry.replenish and is_admin %} replenish-hint{% endif %}"
+             {% if entry.replenish and is_admin %}
+             data-title="{{ item.title }}"
+             data-display-cabinet-id="{{ entry.replenish.display_cabinet_id }}"
+             data-reserve-cabinet-id="{{ entry.replenish.reserve_cabinet_id }}"
+             data-reserve-book-id="{{ entry.replenish.reserve_book_id }}"
+             data-reserve-cabinet-name="{{ entry.replenish.reserve_cabinet_name }}"
+             {% endif %}>
           {{ note }}
+          {% if entry.replenish and is_admin %}
+          <button type="button" class="replenish-btn">
+            從「{{ entry.replenish.reserve_cabinet_name }}」補貨
+          </button>
+          {% endif %}
         </div>
         {% endfor %}
         {% endif %}
@@ -115,7 +148,7 @@
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const sendView = (title, source) => {
       if (!title) return;
-      fetch('{{ url_for("api_view_event") }}', {
+      fetch('{{ url_for("api.api_view_event") }}', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -125,14 +158,34 @@
       }).catch(() => {});
     };
 
-    // Auto-focus first result card; fallback to search input
+    // Auto-focus: prioritize suggestions when no results, otherwise first result card
     window.requestAnimationFrame(() => {
-      const firstCard = document.querySelector('.results-grid .result-card');
-      if (firstCard) {
-        firstCard.setAttribute('tabindex', '-1');
-        firstCard.focus({ preventScroll: true });
-        firstCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      // Check if there are exact results
+      const hasExactResults = document.querySelector('.results-grid:not(.suggestion-grid) .result-card');
+      const suggestionSection = document.getElementById('suggestions-section');
+      const firstSuggestionCard = document.querySelector('.suggestion-grid .result-card');
+      
+      // If no exact results but suggestions exist, focus on suggestions
+      if (!hasExactResults && firstSuggestionCard) {
+        // Scroll to suggestion section
+        if (suggestionSection) {
+          suggestionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        // Focus first suggestion card
+        firstSuggestionCard.setAttribute('tabindex', '-1');
+        setTimeout(() => {
+          firstSuggestionCard.focus({ preventScroll: true });
+        }, 100);
+      } else if (hasExactResults) {
+        // Has exact results, focus first result card
+        const firstCard = document.querySelector('.results-grid:not(.suggestion-grid) .result-card');
+        if (firstCard) {
+          firstCard.setAttribute('tabindex', '-1');
+          firstCard.focus({ preventScroll: true });
+          firstCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
       } else {
+        // No results and no suggestions, focus search input
         const input = document.querySelector('.customer-search .search-box__input');
         if (input) {
           input.focus({ preventScroll: true });
