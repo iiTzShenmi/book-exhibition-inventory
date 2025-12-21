@@ -137,8 +137,7 @@
             <div class="hint-row">
               <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
               <span class="chip chip--soft">支援多櫃位</span>
-              {% set realtime_href = url_for('admin.dashboard') if is_admin else url_for('auth.login') %}
-              <a class="chip chip--action" id="hint-realtime" href="{{ realtime_href }}">⚡ 即時庫存</a>
+              <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
             </div>
           </form>
         </div>
@@ -153,6 +152,57 @@
           </ul>
         </div>
       </section>
+
+      <div id="booth-map-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box medium booth-map-box">
+          <div class="booth-map-header">
+            <div>
+              <p class="eyebrow">現場快速導覽</p>
+              <h3>展場地圖</h3>
+            </div>
+            <button type="button" class="btn btn--secondary" id="booth-map-close">關閉</button>
+          </div>
+          <div class="booth-map-body">
+            <div class="booth-map-canvas" id="booth-map-canvas" aria-label="展場櫃位地圖"></div>
+            <div class="booth-map-panel">
+              <p class="eyebrow">櫃位資訊</p>
+              <h4 id="booth-map-title">請點選櫃位</h4>
+              <div id="booth-map-meta" class="muted">點擊左側櫃位查看推薦書籍。</div>
+              <ul id="booth-map-list" class="booth-map-list"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="realtime-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box medium realtime-modal">
+          <div class="booth-map-header">
+            <div>
+              <p class="eyebrow">即時庫存</p>
+              <h3>⚡ 現場補貨監控</h3>
+            </div>
+            <button type="button" class="btn btn--secondary" id="realtime-close">關閉</button>
+          </div>
+          <div class="realtime-modal-body">
+            <div class="pixel-scene">
+              <div class="shelf shelf--reserve">備書櫃</div>
+              <div class="shelf shelf--display">展示櫃</div>
+              <div id="worker" class="pixel-worker sleeping">
+                <div class="sprite"></div>
+                <div class="bubble">Zzz...</div>
+              </div>
+            </div>
+            <div class="realtime-list-card">
+              <div class="card__header">
+                <span class="chip chip--soft">需要補貨</span>
+                <h3>待處理清單</h3>
+              </div>
+              <div id="realtime-status" class="muted">載入中...</div>
+              <ul id="realtime-alerts" class="realtime-list"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
       {% endif %}
 
       {% if show_top_sellers %}

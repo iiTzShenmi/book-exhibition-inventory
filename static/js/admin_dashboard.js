@@ -18,6 +18,12 @@
   let currentCabinetBooksId = null;
   let pendingMove = null;
 
+  const refreshNotificationsIfAvailable = () => {
+    if (typeof window.refreshNotifications === 'function') {
+      window.refreshNotifications();
+    }
+  };
+
   const getFreshCsrfToken = (token = null) => (
     token
       || window.csrfToken
@@ -416,6 +422,7 @@ async function toggleCabinetType(id) {
       }
       const label = title ? `「${title}」狀態已更新` : '書籍狀態已更新';
       showToast(label, true);
+      refreshNotificationsIfAvailable();
       await loadCabinets();
       await loadCabinetBooks(cabinetId);
       await refreshBookCardsForTitles(data.affected_titles);
@@ -455,6 +462,7 @@ async function toggleCabinetType(id) {
         await refreshBookCardsForTitles(data.affected_titles || [data.title]);
       };
       showToast('書籍已移出本櫃', true, undo);
+      refreshNotificationsIfAvailable();
       await loadCabinets();
       await loadCabinetBooks(cabinetId);
       await refreshBookCardsForTitles(data.affected_titles);
@@ -580,6 +588,7 @@ async function toggleCabinetType(id) {
           }
         : null;
       showToast(label, true, undo);
+      refreshNotificationsIfAvailable();
 
       closeMoveBookModal();
       await loadCabinets();
@@ -899,6 +908,7 @@ async function toggleCabinetType(id) {
         .then(async data => {
           if (data.success) {
             if (window.showToast) window.showToast(data.message || '狀態已更新 ✅', true);
+            refreshNotificationsIfAvailable();
             const title = data.title || document.querySelector('#book-modal-box h2')?.textContent?.trim();
             if (title) {
               // Use window functions that are exposed
@@ -969,6 +979,7 @@ async function toggleCabinetType(id) {
       }
 
       showToast(data.message || '補貨成功 ✅', true);
+      refreshNotificationsIfAvailable();
       // Refresh the modal and book cards
       await refreshModal(title);
       await refreshBookCard(title);
@@ -1076,6 +1087,7 @@ async function toggleCabinetType(id) {
             : null;
 
           showToast(data.message || '新增完成', true, undo);
+          refreshNotificationsIfAvailable();
 
           const title = fd.get('title');
           if (title && typeof refreshBookCard === 'function') {

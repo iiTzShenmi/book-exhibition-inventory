@@ -94,6 +94,8 @@ def dashboard():
     )
 
 
+
+
 @admin_bp.route("/admin/audit")
 def audit_page():
     if not session.get("is_admin"):

@@ -334,6 +334,47 @@ def book_card(title):
     """, title=title, grouped=grouped)
 
 
+@api_bp.route("/api/cabinets")
+def list_cabinets():
+    cabinets = Cabinet.query.order_by(Cabinet.name.asc()).all()
+    payload = [
+        {"id": cab.id, "name": cab.name, "type": (cab.type or "").strip().lower()}
+        for cab in cabinets
+    ]
+    return jsonify({"success": True, "cabinets": payload})
+
+
+@api_bp.route("/api/cabinets/<int:cabinet_id>/featured")
+def cabinet_featured(cabinet_id):
+    cabinet = Cabinet.query.get_or_404(cabinet_id)
+    books = (
+        active_books_query()
+        .filter_by(cabinet_id=cabinet_id)
+        .join(BookTitle)
+        .order_by(Book.updated_at.desc())
+        .limit(30)
+        .all()
+    )
+    titles = []
+    seen = set()
+    for book in books:
+        title = book.title
+        if title and title not in seen:
+            seen.add(title)
+            titles.append(title)
+        if len(titles) >= 8:
+            break
+    return jsonify({
+        "success": True,
+        "cabinet": {
+            "id": cabinet.id,
+            "name": cabinet.name,
+            "type": (cabinet.type or "").strip().lower(),
+        },
+        "titles": titles,
+    })
+
+
 @api_bp.route("/toggle_modal_stock/<int:id>", methods=["POST"])
 def toggle_modal_stock(id):
     if not session.get("is_admin"):
@@ -368,6 +409,18 @@ def get_notifications():
 
     alerts = collect_replenish_alerts()
     return jsonify(alerts)
+
+
+@api_bp.route("/api/realtime_status")
+def realtime_status():
+    alerts = collect_replenish_alerts()
+    messages = [alert.get("message") for alert in alerts if alert.get("message")]
+    return jsonify({
+        "success": True,
+        "has_work": bool(messages),
+        "count": len(messages),
+        "messages": messages[:10],
+    })
 
 
 @api_bp.route("/titles/<int:title_id>/cover")

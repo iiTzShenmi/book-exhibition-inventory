@@ -51,6 +51,7 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or f"sqlite:///{DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
 app.secret_key = (
     os.environ.get("FLASK_SECRET_KEY")
     or os.environ.get("APP_SECRET_KEY")
@@ -1145,44 +1146,85 @@ def get_csrf_token():
     return token
 
 def collect_replenish_alerts():
-    """Dynamically scan for books/cabinets that need attention."""
+    """Dynamically scan for books/cabinets that need attention (optimized)."""
     alerts = []
 
-    # Note: Quantity tracking removed - alerts disabled
-    # All inventory records represent books in stock
-    
-    # Check for books only in reserve cabinets (not displayed)
-    reserve_only_books = []
-    for title_obj in BookTitle.query.all():
-        inventories = Inventory.query.filter_by(title_id=title_obj.id, status="active").all()
-        has_display = any(
-            inv.cabinet and (inv.cabinet.type or "").strip().lower() == "display"
-            for inv in inventories
-        )
-        has_reserve = any(
-            inv.cabinet and (inv.cabinet.type or "").strip().lower() == "reserve"
-            for inv in inventories
-        )
-        if has_reserve and not has_display:
-            reserve_only_books.append(title_obj.title)
-    
-    for title in reserve_only_books[:10]:  # Limit to 10 alerts
+    # 1) Display out-of-stock but reserve in-stock (needs replenishment).
+    display_out_titles_sub = (
+        db.session.query(Inventory.title_id)
+        .join(Cabinet)
+        .filter(Inventory.status == "active")
+        .filter(Inventory.in_stock.is_(False))
+        .filter(func.lower(Cabinet.type) == "display")
+        .subquery()
+    )
+
+    reserve_in_titles_sub = (
+        db.session.query(Inventory.title_id)
+        .join(Cabinet)
+        .filter(Inventory.status == "active")
+        .filter(Inventory.in_stock.is_(True))
+        .filter(func.lower(Cabinet.type) == "reserve")
+        .subquery()
+    )
+
+    replenish_results = (
+        db.session.query(BookTitle.title)
+        .filter(BookTitle.id.in_(display_out_titles_sub))
+        .filter(BookTitle.id.in_(reserve_in_titles_sub))
+        .distinct()
+        .limit(20)
+        .all()
+    )
+
+    for row in replenish_results:
         alerts.append({
-            "type": "info",
-            "message": f"《{title}》僅存在備書櫃，未展示"
+            "type": "low-stock",
+            "message": f"《{row.title}》展示缺貨，可從備書補貨",
         })
 
-    # Empty cabinets (no books)
-    empty_cabs = []
-    for cab in Cabinet.query.all():
-        has_books = Inventory.query.filter_by(cabinet_id=cab.id, status="active").first()
-        if not has_books:
-            empty_cabs.append(cab.name)
+    # 2) Titles that exist in reserve cabinets but not in display cabinets.
+    display_titles_sub = (
+        db.session.query(Inventory.title_id)
+        .join(Cabinet)
+        .filter(Inventory.status == "active")
+        .filter(func.lower(Cabinet.type) == "display")
+        .subquery()
+    )
 
-    for cab_name in empty_cabs:
+    reserve_only_results = (
+        db.session.query(BookTitle.title)
+        .join(Inventory)
+        .join(Cabinet)
+        .filter(Inventory.status == "active")
+        .filter(func.lower(Cabinet.type) == "reserve")
+        .filter(~BookTitle.id.in_(display_titles_sub))
+        .distinct()
+        .limit(10)
+        .all()
+    )
+
+    for row in reserve_only_results:
         alerts.append({
             "type": "info",
-            "message": f"櫃位「{cab_name}」目前沒有書籍"
+            "message": f"《{row.title}》僅存在備書櫃，未展示"
+        })
+
+    # 3) Empty cabinets (no active inventory).
+    empty_cabs = (
+        db.session.query(Cabinet.name)
+        .outerjoin(
+            Inventory,
+            (Cabinet.id == Inventory.cabinet_id) & (Inventory.status == "active"),
+        )
+        .filter(Inventory.id.is_(None))
+        .all()
+    )
+
+    for row in empty_cabs:
+        alerts.append({
+            "type": "info",
+            "message": f"櫃位「{row.name}」目前沒有書籍"
         })
 
     return alerts
