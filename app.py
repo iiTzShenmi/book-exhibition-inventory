@@ -38,10 +38,9 @@ ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH")
 IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production" or bool(DATABASE_URL)
 
 if not ADMIN_PASSWORD_HASH and not ADMIN_PASSWORD_RAW:
-    if IS_PRODUCTION:
-        raise ValueError("ADMIN_PASSWORD or ADMIN_PASSWORD_HASH must be set in environment variables for production")
-    ADMIN_PASSWORD_RAW = secrets.token_urlsafe(12)
-    print(f"[dev] Generated one-time ADMIN_PASSWORD for this run: {ADMIN_PASSWORD_RAW}")
+    if not IS_PRODUCTION:
+        ADMIN_PASSWORD_RAW = secrets.token_urlsafe(12)
+        print(f"[dev] Generated one-time ADMIN_PASSWORD for this run: {ADMIN_PASSWORD_RAW}")
 
 if not ADMIN_PASSWORD_HASH and ADMIN_PASSWORD_RAW:
     ADMIN_PASSWORD_HASH = generate_password_hash(ADMIN_PASSWORD_RAW)
@@ -822,16 +821,14 @@ def ensure_default_admin():
     """Create a default admin user when none exist, using env credentials."""
     if AdminUser.query.first():
         return
-    username = ADMIN_USERNAME or "admin"
     password = ADMIN_PASSWORD_RAW
     password_hash = ADMIN_PASSWORD_HASH
+    if not password and not password_hash:
+        print("[init] No default admin seeded (no ADMIN_PASSWORD/ADMIN_PASSWORD_HASH set).")
+        return
 
+    username = ADMIN_USERNAME or "admin"
     if not password_hash:
-        if not password and IS_PRODUCTION:
-            raise ValueError("ADMIN_PASSWORD or ADMIN_PASSWORD_HASH must be configured before creating admin user")
-        if not password:
-            password = secrets.token_urlsafe(12)
-            print(f"[dev] Generated default admin password for seeding: {password}")
         password_hash = generate_password_hash(password)
 
     email = DEFAULT_ADMIN_EMAIL
