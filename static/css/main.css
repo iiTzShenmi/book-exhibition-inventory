@@ -1753,6 +1753,18 @@ footer {
   box-shadow: var(--shadow-soft);
 }
 
+.admin-fab {
+  position: sticky;
+  bottom: 16px;
+  display: flex;
+  justify-content: flex-end;
+  margin: 16px 5vw 0;
+}
+
+.admin-fab .pill-link {
+  box-shadow: 0 10px 20px rgba(47, 107, 255, 0.18);
+}
+
 /* Responsive */
 @media (max-width: 960px) {
   .hero { grid-template-columns: 1fr; }

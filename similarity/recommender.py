@@ -2,7 +2,7 @@
 import json
 import re
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
+from rapidfuzz import fuzz  
 from typing import Iterable, List, Sequence, Tuple
 
 
@@ -64,31 +64,35 @@ def parse_topics_field(raw) -> List[str]:
 
 
 DEFAULT_WEIGHTS = {
-    "title": 0.65,
-    "topics": 0.35,
+    "title": 0.8,
+    "topics": 0.5,
     "title_substring_bonus": 0.2,
     "topic_hit_bonus": 0.15,
 }
 
 
 def score_profile(query: str, profile: BookProfile, weights: dict | None = None) -> float:
-    """Score a profile using title similarity and topic overlap only."""
     weights = weights or DEFAULT_WEIGHTS
+    
+    # RapidFuzz handles normalization internally, but keeping yours ensures consistency
+    # with your topic logic.
     q_norm = _normalize(query)
-    if not q_norm:
-        return 0.0
-
     title_norm = _normalize(profile.title)
-    if not title_norm:
+    
+    if not q_norm or not title_norm:
         return 0.0
 
-    title_score = SequenceMatcher(None, q_norm, title_norm).ratio() * weights.get("title", 1.0)
+    # OPTIMIZATION: rapidfuzz.fuzz.ratio returns 0-100, so divide by 100
+    # This replaces SequenceMatcher(None, a, b).ratio()
+    title_sim = fuzz.ratio(q_norm, title_norm) / 100.0
+    
+    title_score = title_sim * weights.get("title", 1.0)
 
     if q_norm in title_norm:
         title_score += weights.get("title_substring_bonus", 0.0)
 
+    # Keep your topic logic (sets are fast enough for now)
     query_tokens = set(_tokenize(query))
-
     topic_tokens = set()
     for t in profile.topics or []:
         topic_tokens.update(_tokenize(t))
@@ -101,7 +105,6 @@ def score_profile(query: str, profile: BookProfile, weights: dict | None = None)
             topic_score += weights.get("topic_hit_bonus", 0.0)
 
     return title_score + topic_score
-
 
 def suggest_for_missing_title(
     profiles: Iterable[BookProfile], query: str, top: int = 5

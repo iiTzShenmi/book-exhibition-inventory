@@ -39,9 +39,6 @@
           <a class="btn solid logout-btn" href="{{ url_for('auth.logout') }}">登出</a>
         </div>
         {% else %}
-        <div class="header-actions">
-          <a class="pill-link" href="{{ url_for('auth.login') }}">管理員專區</a>
-        </div>
         {% endif %}
       </div>
 
@@ -253,6 +250,12 @@
         <span class="muted">2025 • Modern, clear, ready for the floor.</span>
       </div>
     </footer>
+
+    {% if request.blueprint != 'admin' %}
+    <div class="admin-fab">
+      <a class="pill-link" href="{{ url_for('auth.login') }}">管理員專區</a>
+    </div>
+    {% endif %}
   </div>
 
   <script src="{{ url_for('static', filename='js/base.js') }}" defer></script>
