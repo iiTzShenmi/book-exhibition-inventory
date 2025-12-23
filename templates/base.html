@@ -248,14 +248,11 @@
           <strong>書展庫存系統</strong>
         </div>
         <span class="muted">2025 • Modern, clear, ready for the floor.</span>
+        {% if request.blueprint != 'admin' %}
+        <a class="pill-link footer-admin" href="{{ url_for('auth.login') }}">管理員專區</a>
+        {% endif %}
       </div>
     </footer>
-
-    {% if request.blueprint != 'admin' %}
-    <div class="admin-fab">
-      <a class="pill-link" href="{{ url_for('auth.login') }}">管理員專區</a>
-    </div>
-    {% endif %}
   </div>
 
   <script src="{{ url_for('static', filename='js/base.js') }}" defer></script>

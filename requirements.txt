@@ -49,6 +49,7 @@ PyQt6==6.9.1
 PyQt6-Qt6==6.9.2
 PyQt6_sip==13.10.2
 PyYAML==6.0.3
+RapidFuzz==3.14.3
 regex==2025.11.3
 requests==2.31.0
 safetensors==0.7.0
