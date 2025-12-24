@@ -145,6 +145,43 @@ class TopSellerSnapshot(db.Model):
     calculated_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
 
+class BackupArchive(db.Model):
+    __tablename__ = "backup_archive"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    filename = db.Column(db.String(100))
+    csv_content = db.Column(db.Text)
+    note = db.Column(db.String(255))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat() if self.created_at else "",
+            "filename": self.filename,
+            "size_kb": self.size_kb,
+        }
+
+    @property
+    def size_kb(self):
+        return round(len(self.csv_content or "") / 1024, 2)
+
+
+class EventSchedule(db.Model):
+    __tablename__ = "event_schedule"
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(255), nullable=False)
+    time_text = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.String(255))
+    location = db.Column(db.String(120))
+    note = db.Column(db.String(120))
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    display_order = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Event listener to catch any Inventory objects with NULL title_id before flush
 @event.listens_for(Inventory, "before_insert", propagate=True)
 @event.listens_for(Inventory, "before_update", propagate=True)

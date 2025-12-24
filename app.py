@@ -18,7 +18,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from tools import env_loader  # loads .env into os.environ
 from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
-from database.models import ViewEvent, TopSellerSnapshot
+from database.models import ViewEvent, TopSellerSnapshot, EventSchedule, BackupArchive
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -1242,6 +1242,10 @@ def ensure_schema_migrations():
                 inspector = db.inspect(db.engine)
                 if "top_seller_snapshot" not in inspector.get_table_names():
                     TopSellerSnapshot.__table__.create(db.engine)
+                if "event_schedule" not in inspector.get_table_names():
+                    EventSchedule.__table__.create(db.engine)
+                if "backup_archive" not in inspector.get_table_names():
+                    BackupArchive.__table__.create(db.engine)
             app._schema_migrations_checked = True
         except Exception as e:
             print(f"[warning] Schema migration check failed: {e}")

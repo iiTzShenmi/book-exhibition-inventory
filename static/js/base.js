@@ -204,6 +204,7 @@
         openRealtimeModal();
       });
     }
+    loadEventsForHero();
   });
 
   let boothMapLoaded = false;
@@ -366,10 +367,11 @@
       const res = await fetch('/api/realtime_status', { cache: 'no-store' });
       const data = await res.json();
       const messages = Array.isArray(data?.messages) ? data.messages : [];
+      const hasWork = typeof data?.has_work === 'boolean' ? data.has_work : messages.length > 0;
       listEl.innerHTML = '';
       if (!messages.length) {
         statusEl.textContent = '目前沒有需要補貨的書籍。';
-        setRealtimeWorker(false);
+        setRealtimeWorker(hasWork);
         return;
       }
       statusEl.textContent = `目前有 ${messages.length} 筆補貨提醒`;
@@ -378,7 +380,7 @@
         li.textContent = message;
         listEl.appendChild(li);
       });
-      setRealtimeWorker(true);
+      setRealtimeWorker(hasWork);
     } catch (err) {
       console.error(err);
       statusEl.textContent = '無法載入補貨資訊，請稍後再試。';
@@ -445,6 +447,186 @@
   window.closeBookModal = closeBookModal;
   window.closeModal = closeBookModal;
 
+  let eventRotationTimer = null;
+
+  function buildEventSlide(evt) {
+    const slide = document.createElement('div');
+    slide.className = 'event-slide';
+
+    const time = document.createElement('h3');
+    time.textContent = evt.time_text || '';
+    slide.appendChild(time);
+
+    if (evt.description) {
+      const desc = document.createElement('p');
+      desc.className = 'muted';
+      desc.textContent = evt.description;
+      slide.appendChild(desc);
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'hero__list';
+    if (evt.location) {
+      const li = document.createElement('li');
+      li.textContent = `📍 ${evt.location}`;
+      list.appendChild(li);
+    }
+    if (evt.title) {
+      const li = document.createElement('li');
+      li.textContent = `🗣️ ${evt.title}`;
+      list.appendChild(li);
+    }
+    if (evt.note) {
+      const li = document.createElement('li');
+      li.textContent = `🎁 ${evt.note}`;
+      list.appendChild(li);
+    }
+    if (list.children.length) {
+      slide.appendChild(list);
+    }
+    return slide;
+  }
+
+  function renderEventDots(count, activeIdx) {
+    const dots = document.getElementById('event-dots');
+    if (!dots) return;
+    dots.innerHTML = '';
+    if (count <= 1) return;
+    for (let i = 0; i < count; i++) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `event-dot${i === activeIdx ? ' is-active' : ''}`;
+      btn.dataset.index = String(i);
+      dots.appendChild(btn);
+    }
+  }
+
+  function setEventIndex(track, idx) {
+    const width = track.parentElement?.clientWidth || 0;
+    if (width) {
+      track.style.transform = `translateX(${-idx * width}px)`;
+    } else {
+      track.style.transform = `translateX(-${idx * 100}%)`;
+    }
+    renderEventDots(track.children.length, idx);
+  }
+
+  async function loadEventsForHero() {
+    const track = document.getElementById('event-track');
+    const dots = document.getElementById('event-dots');
+    if (!track || !dots) return;
+    try {
+      const res = await fetch('/api/events', { cache: 'no-store' });
+      const data = await res.json();
+      const events = Array.isArray(data?.events) ? data.events : [];
+      if (!events.length) return;
+      track.innerHTML = '';
+      events.forEach((evt) => {
+        track.appendChild(buildEventSlide(evt));
+      });
+
+      let idx = 0;
+      setEventIndex(track, idx);
+
+      dots.addEventListener('click', (e) => {
+        const btn = e.target.closest('.event-dot');
+        if (!btn) return;
+        idx = Number(btn.dataset.index) || 0;
+        setEventIndex(track, idx);
+        if (eventRotationTimer) {
+          clearInterval(eventRotationTimer);
+          eventRotationTimer = setInterval(() => {
+            idx = (idx + 1) % events.length;
+            setEventIndex(track, idx);
+          }, 10000);
+        }
+      });
+
+      if (events.length > 1) {
+        eventRotationTimer = setInterval(() => {
+          idx = (idx + 1) % events.length;
+          setEventIndex(track, idx);
+        }, 10000);
+      }
+
+      const carousel = track.parentElement;
+      if (carousel) {
+        let startX = 0;
+        let deltaX = 0;
+        let dragging = false;
+
+        const onPointerDown = (event) => {
+          dragging = true;
+          startX = event.clientX;
+          deltaX = 0;
+          carousel.classList.add('is-dragging');
+          if (eventRotationTimer) {
+            clearInterval(eventRotationTimer);
+            eventRotationTimer = null;
+          }
+          carousel.setPointerCapture?.(event.pointerId);
+        };
+
+        const onPointerMove = (event) => {
+          if (!dragging) return;
+          deltaX = event.clientX - startX;
+          const width = carousel.clientWidth || 1;
+          const base = -idx * width;
+          track.style.transform = `translateX(${base + deltaX}px)`;
+        };
+
+        const onPointerUp = () => {
+          if (!dragging) return;
+          dragging = false;
+          carousel.classList.remove('is-dragging');
+          const width = carousel.clientWidth || 1;
+          if (Math.abs(deltaX) > width * 0.2) {
+            if (deltaX < 0) {
+              idx = idx + 1 >= events.length ? 0 : idx + 1;
+            } else {
+              idx = idx - 1 < 0 ? events.length - 1 : idx - 1;
+            }
+          }
+          setEventIndex(track, idx);
+          if (events.length > 1 && !eventRotationTimer) {
+            eventRotationTimer = setInterval(() => {
+              idx = (idx + 1) % events.length;
+              setEventIndex(track, idx);
+            }, 10000);
+          }
+        };
+
+        carousel.addEventListener('pointerdown', onPointerDown);
+        carousel.addEventListener('pointermove', onPointerMove);
+        carousel.addEventListener('pointerup', onPointerUp);
+        carousel.addEventListener('pointerleave', onPointerUp);
+        carousel.addEventListener('wheel', (event) => {
+          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+          event.preventDefault();
+          if (eventRotationTimer) {
+            clearInterval(eventRotationTimer);
+            eventRotationTimer = null;
+          }
+          if (event.deltaY > 0) {
+            idx = idx + 1 >= events.length ? 0 : idx + 1;
+          } else {
+            idx = idx - 1 < 0 ? events.length - 1 : idx - 1;
+          }
+          setEventIndex(track, idx);
+          if (events.length > 1 && !eventRotationTimer) {
+            eventRotationTimer = setInterval(() => {
+              idx = (idx + 1) % events.length;
+              setEventIndex(track, idx);
+            }, 10000);
+          }
+        }, { passive: false });
+        window.addEventListener('resize', () => setEventIndex(track, idx));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
   function handleNotificationTabs(event) {
     const tab = event.target.closest('.notif-tab');
     if (!tab) return;
@@ -453,6 +635,7 @@
     const type = tab.dataset.type || 'all';
     renderNotifications(type);
   }
+
 
   function bindEscapeToCloseModals() {
     document.addEventListener('keydown', event => {
@@ -525,13 +708,19 @@
       }
     });
 
+    const isInViewport = (el) => {
+      if (!el) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.top >= 0 && rect.bottom <= (window.innerHeight || document.documentElement.clientHeight);
+    };
+
     setInterval(() => {
       const active = document.activeElement;
       const activeTag = active && active.tagName;
       const isTyping =
         activeTag === 'INPUT' || activeTag === 'TEXTAREA' || (active && active.isContentEditable);
-      if (document.visibilityState === 'visible' && !isTyping && active !== targetInput) {
-        targetInput.focus();
+      if (document.visibilityState === 'visible' && !isTyping && active !== targetInput && isInViewport(targetInput)) {
+        targetInput.focus({ preventScroll: true });
       }
     }, 5000);
   }

@@ -3,7 +3,7 @@ from collections import defaultdict
 from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, render_template_string, request, send_from_directory, session, url_for
 from sqlalchemy import func, or_
 
-from database.models import Book, BookTitle, Cabinet, db
+from database.models import Book, BookTitle, Cabinet, EventSchedule, db
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 from app import (
     active_books_query,
@@ -409,6 +409,28 @@ def get_notifications():
 
     alerts = collect_replenish_alerts()
     return jsonify(alerts)
+
+
+@api_bp.route("/api/events")
+def get_events():
+    events = (
+        EventSchedule.query
+        .filter_by(is_active=True)
+        .order_by(EventSchedule.display_order.asc(), EventSchedule.updated_at.desc())
+        .all()
+    )
+    payload = [
+        {
+            "id": evt.id,
+            "title": evt.title,
+            "time_text": evt.time_text,
+            "description": evt.description,
+            "location": evt.location,
+            "note": evt.note,
+        }
+        for evt in events
+    ]
+    return jsonify({"success": True, "events": payload})
 
 
 @api_bp.route("/api/realtime_status")

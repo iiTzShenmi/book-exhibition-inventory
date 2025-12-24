@@ -16,31 +16,29 @@
     <div class="bg-glow bg-glow--left"></div>
     <div class="bg-glow bg-glow--right"></div>
 
-    <header class="site-header {% if request.blueprint == 'admin' %}site-header--admin{% endif %}">
+    <header class="{% if request.blueprint == 'admin' %}site-header--admin{% endif %}{% if request.blueprint != 'admin' %} site-header--hidden{% endif %}">
       <div class="site-header__inner">
-        <a class="brand" href="{{ url_for('inventory.home') }}">
-          <span class="brand__mark">📚</span>
-          <span class="brand__text">
-            <span class="eyebrow">Book Expo</span>
-            <span class="brand__title">書展庫存系統</span>
-          </span>
-        </a>
-
         {% if request.blueprint == 'admin' %}
-        <div class="admin-header-buttons">
+        <div class="admin-header-tabs">
           <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
             🔔
             <span id="notif-count" class="notif-count" style="display:none;">0</span>
           </button>
-          <button type="button" class="btn ghost logout-btn" onclick="refreshDashboardPage()">刷新面板</button>
-          <button type="button" class="btn ghost logout-btn" onclick="handleAddBook()">新增書籍</button>
-          <button type="button" class="btn ghost logout-btn" onclick="handleCabinetManager()">櫃位管理</button>
-          <a class="btn ghost logout-btn" href="{{ url_for('admin.audit_page') }}">操作紀錄</a>
           <a class="btn solid logout-btn" href="{{ url_for('auth.logout') }}">登出</a>
         </div>
         {% else %}
         {% endif %}
       </div>
+
+      {% if request.blueprint == 'admin' %}
+      <div class="admin-tabbar">
+        <nav class="admin-tabs" aria-label="Admin navigation">
+          <a class="admin-tab{% if request.endpoint == 'admin.dashboard' %} is-active{% endif %}" href="{{ url_for('admin.dashboard') }}">管理面板</a>
+          <a class="admin-tab{% if request.endpoint == 'admin.admin_events' %} is-active{% endif %}" href="{{ url_for('admin.admin_events') }}">活動管理</a>
+          <a class="admin-tab{% if request.endpoint == 'admin.audit_page' %} is-active{% endif %}" href="{{ url_for('admin.audit_page') }}">操作紀錄</a>
+        </nav>
+      </div>
+      {% endif %}
 
       {% if request.endpoint == 'admin.dashboard' %}
         <div class="admin-toolbar">
@@ -89,8 +87,19 @@
             <div class="card audit-card backup-card slim-card admin-backup-card">
               <p class="eyebrow">備份</p>
               <h2>資料備份</h2>
-              <p class="muted">上次備份：<span id="last-backup-ts">{{ last_backup_ts and last_backup_ts[:16].replace('T',' ') }}</span></p>
-              <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即備份</button>
+              <button type="button" class="btn btn--primary btn--sm" id="backup-btn" onclick="runBackup(this)">立即雲端備份</button>
+              <div class="backup-list" id="backup-list">
+                {% if recent_backups %}
+                {% for b in recent_backups %}
+                <div class="backup-item">
+                  <strong>{{ b.created_at.strftime('%m/%d %H:%M') }}</strong>
+                  <span class="muted">({{ b.size_kb }} KB)</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <div class="muted">尚無備份紀錄</div>
+                {% endif %}
+              </div>
             </div>
           </div>
         </div>
@@ -123,7 +132,13 @@
       {% if request.endpoint in ['inventory.home', 'api.search'] %}
       <section class="hero">
         <div class="hero__text">
-          <p class="eyebrow">2025 書展現場</p>
+          <p class="eyebrow hero-brand">
+            <span class="brand__mark">📚</span>
+            <span class="brand__text">
+              <span class="brand__eyebrow">Book Expo</span>
+              <span class="brand__title">書展庫存系統</span>
+            </span>
+          </p>
           <h1>快速找到展場裡的每一本書</h1>
           <p class="muted">輸入書名、作者或關鍵字，立即查詢展示櫃或備書櫃的庫存狀態。</p>
           <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
@@ -133,20 +148,26 @@
             </div>
             <div class="hint-row">
               <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
-              <span class="chip chip--soft">支援多櫃位</span>
               <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
             </div>
           </form>
         </div>
-        <div class="hero__card">
-          <div class="hero__badge">Book Exhibition</div>
-          <h3>Curated Picks</h3>
-          <p class="muted">主題展櫃、備書櫃與熱門作品一次掌握。</p>
-          <ul class="hero__list">
-            <li>🔍 精準搜尋、快速定位</li>
-            <li>🗂️ 展示櫃 / 備書櫃分明</li>
-            <li>📦 缺貨即時通知</li>
-          </ul>
+        <div class="hero__card hero__card--event" id="event-card">
+          <div class="hero__badge">活動時段</div>
+          <div class="event-carousel">
+            <div class="event-track" id="event-track">
+              <div class="event-slide">
+                <h3>每日 14:00 / 17:00</h3>
+                <p class="muted">作者快閃分享 • 現場 Q&A</p>
+                <ul class="hero__list">
+                  <li>📍 舞台區域</li>
+                  <li>🗣️ 作者快閃分享</li>
+                  <li>🎁 現場小禮物</li>
+                </ul>
+              </div>
+            </div>
+            <div class="event-dots" id="event-dots" aria-label="活動切換"></div>
+          </div>
         </div>
       </section>
 
@@ -201,44 +222,78 @@
         </div>
       </div>
       {% endif %}
-
+      
+      <section class="content-section">
+        {% block content %}{% endblock %}
+        {% if request.endpoint in ['inventory.home', 'api.search'] %}
+        <section class="info-hub">
+          <div class="section-head">
+            <h1>🧭 展場資訊❗❗</h1>
+          </div>
+          <div class="info-grid">
+            <div class="info-card">
+              <h2>優惠活動</h2>
+              <p>單本88折 / 三本以上85折</p>
+            </div>
+            <div class="info-card">
+              <h2>結帳櫃檯</h2>
+              <p>支援現金 / 行動支付</p>
+            </div>
+          </div>
+        </section>
+        {% endif %}
+      </section>
+      
       {% if show_top_sellers %}
       <section class="top-sell">
         <div class="section-head">
           <p class="eyebrow">熱門選書</p>
           <h2>🔥 展場熱銷</h2>
-          <p class="muted">近期最常被查看的書籍，直接定位。</p>
         </div>
-        <div class="book-scroll">
-          {% set sellers = top_sellers or [] %}
-          {% if sellers %}
-          {% for item in sellers %}
-          <div class="book-card" data-title="{{ item.title }}" data-source="top_seller">
-            {% if item.count %}
-            <div class="book-rank-badge">
-              <span class="hot-dot">•</span>
-              <span class="count">{{ item.count }}</span>
+
+        <div class="marquee-container">
+          <div class="marquee-row scroll-left">
+            <div class="marquee-track">
+              {% for item in top_sellers %}
+              <div class="book-card-mini" data-title="{{ item.title }}" data-source="top_seller">
+                <img src="{{ item.cover }}" alt="{{ item.title }}">
+                <div class="rank">#{{ loop.index }}</div>
+              </div>
+              {% endfor %}
+              {% for item in top_sellers %}
+              <div class="book-card-mini" data-title="{{ item.title }}" data-source="top_seller">
+                <img src="{{ item.cover }}" alt="{{ item.title }}">
+                <div class="rank">#{{ loop.index }}</div>
+              </div>
+              {% endfor %}
             </div>
-            {% endif %}
-            <div class="book-cover">
-              <img src="{{ item.cover }}" alt="{{ item.title }}">
+          </div>
+        </div>
+      </section>
+
+      <section class="top-sell">
+        <div class="section-head">
+          <p class="eyebrow">推薦書單</p>
+          <h2>📚 展場精選</h2>
+        </div>
+        <div class="marquee-container">
+          <div class="marquee-row scroll-right">
+            <div class="marquee-track">
+              {% for item in random_picks %}
+              <div class="book-card-mini">
+                <img src="{{ item.cover_url }}" alt="{{ item.title }}">
+              </div>
+              {% endfor %}
+              {% for item in random_picks %}
+              <div class="book-card-mini">
+                <img src="{{ item.cover_url }}" alt="{{ item.title }}">
+              </div>
+              {% endfor %}
             </div>
-            <p>{{ item.title }}</p>
           </div>
-          {% endfor %}
-          {% else %}
-          <div class="book-card">
-            <div class="book-cover"></div>
-            <p>待填入熱門書籍</p>
-          </div>
-          {% endif %}
         </div>
       </section>
       {% endif %}
-
-      <section class="content-section">
-        {% block content %}{% endblock %}
-      </section>
     </main>
 
     <footer>

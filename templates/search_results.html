@@ -169,7 +169,7 @@
       if (!hasExactResults && firstSuggestionCard) {
         // Scroll to suggestion section
         if (suggestionSection) {
-          suggestionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          suggestionSection.focus?.({ preventScroll: true });
         }
         // Focus first suggestion card
         firstSuggestionCard.setAttribute('tabindex', '-1');
@@ -182,7 +182,7 @@
         if (firstCard) {
           firstCard.setAttribute('tabindex', '-1');
           firstCard.focus({ preventScroll: true });
-          firstCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          // Avoid auto-scrolling the page; just focus for accessibility.
         }
       } else {
         // No results and no suggestions, focus search input

@@ -2,8 +2,9 @@ import re
 from datetime import datetime
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+from sqlalchemy import func
 
-from database.models import Book, BookTitle, Cabinet, db
+from database.models import Book, BookTitle, Cabinet, EventSchedule, db
 from app import (
     active_books_query,
     book_to_dict,
@@ -22,12 +23,22 @@ inventory_bp = Blueprint("inventory", __name__)
 
 @inventory_bp.route("/")
 def home():
-    top_sellers = get_top_sellers(limit=8)
+    top_sellers = get_top_sellers(limit=10)
+    random_picks = active_books_query().order_by(func.random()).limit(10).all()
+    random_picks_data = [book_to_dict(book) for book in random_picks]
+    events = (
+        EventSchedule.query
+        .filter_by(is_active=True)
+        .order_by(EventSchedule.display_order.asc(), EventSchedule.updated_at.desc())
+        .all()
+    )
     return render_template(
         "home.html",
         title="書展庫存系統",
         show_top_sellers=True,
         top_sellers=top_sellers,
+        random_picks=random_picks_data,
+        events=events,
     )
 
 

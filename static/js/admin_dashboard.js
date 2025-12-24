@@ -1055,8 +1055,7 @@ async function toggleCabinetType(id) {
         const fd = new FormData(addBookForm);
         const bookTitle = fd.get('title') || '';
         const cabId = fd.get('cabinet_id');
-        const amount = fd.get('amount') || '1';
-        if (!window.confirm(`新增《${bookTitle}》到櫃位(${cabId || '未選'})，數量 ${amount}？`)) return;
+        if (!window.confirm(`新增《${bookTitle}》到櫃位(${cabId || '未選'})？`)) return;
 
         try {
           const res = await fetch(addBookForm.action || '/add_book', {
@@ -1070,16 +1069,11 @@ async function toggleCabinetType(id) {
             return;
           }
 
-          const undoAmount = Math.max(Number(amount) || 1, 1);
           const undo = data.book_id
             ? async () => {
-                await fetch(`/cabinets/${data.cabinet_id}/books/${data.book_id}/adjust`, {
-                  method: 'PATCH',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    ...headersWithCsrf(),
-                  },
-                  body: JSON.stringify({ delta: -undoAmount }),
+                await fetch(`/cabinets/${data.cabinet_id}/books/${data.book_id}`, {
+                  method: 'DELETE',
+                  headers: headersWithCsrf(),
                 });
                 await loadCabinets();
                 if (data.title) await refreshBookCard(data.title);
@@ -1160,9 +1154,17 @@ async function toggleCabinetType(id) {
         showToast(data.message || '備份失敗', false);
         return;
       }
-      const tsEl = document.getElementById('last-backup-ts');
-      if (tsEl && data.timestamp) {
-        tsEl.textContent = data.timestamp.replace('T', ' ').slice(0, 16);
+      const list = document.getElementById('backup-list');
+      if (list && data.backup) {
+        const item = document.createElement('div');
+        item.className = 'backup-item';
+        const ts = (data.backup.created_at || '').replace('T', ' ').slice(0, 16);
+        item.innerHTML = `<strong>${ts}</strong> <span class="muted">(${data.backup.size_kb} KB)</span>`;
+        const empty = list.querySelector('.muted');
+        if (empty) {
+          empty.remove();
+        }
+        list.prepend(item);
       }
       showToast(data.message || '備份完成', true, null);
       console.info('[backup] created', data.backups || data);
