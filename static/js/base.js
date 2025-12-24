@@ -865,6 +865,26 @@
     window._replenishHintsBound = true;
   }
 
+  function setupAdminSidebar() {
+    const toggleBtn = document.getElementById('admin-sidebar-toggle');
+    const closeBtn = document.getElementById('admin-sidebar-close');
+    const overlay = document.getElementById('admin-sidebar-overlay');
+
+    if (toggleBtn && closeBtn && overlay) {
+      toggleBtn.addEventListener('click', () => {
+        document.body.classList.add('sidebar-is-open');
+      });
+
+      closeBtn.addEventListener('click', () => {
+        document.body.classList.remove('sidebar-is-open');
+      });
+
+      overlay.addEventListener('click', () => {
+        document.body.classList.remove('sidebar-is-open');
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     resetAdminSearchForm();
     bindEscapeToCloseModals();
@@ -874,6 +894,7 @@
     registerServiceWorker();
     bindInlineForms();
     bindReplenishHints();
+    setupAdminSidebar();
 
     const notifBtn = document.getElementById('notif-btn');
     if (notifBtn) {

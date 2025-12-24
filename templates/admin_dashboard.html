@@ -2,14 +2,80 @@
 {% block content %}
 <section id="admin-dashboard" class="admin-board" data-all-cabinets='{{ cabinets_payload | tojson | safe }}'>
   <div class="section-head">
-    <p class="eyebrow">展場現場控管</p>
-    <h2>📦 管理面板</h2>
-    <p class="muted">以卡片檢視整理所有書籍，快速切換庫存、移動或新增櫃位。</p>
+    <p class="eyebrow">庫存管理</p>
+    <div class="section-head__row">
+      <h2>📦 管理面板</h2>
+      <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
+        🔔
+        <span id="notif-count" class="notif-count" style="display:none;">0</span>
+      </button>
+    </div>
+    <p class="muted">查找、編輯書籍和書櫃狀態。</p>
   </div>
 
-  <div class="admin-actions-bar">
-    <button type="button" class="btn btn--primary" onclick="handleAddBook()">新增書籍</button>
-    <button type="button" class="btn btn--secondary" onclick="handleCabinetManager()">櫃位管理</button>
+  <div class="admin-toolbar">
+    <div class="admin-toolbar__top">
+      <div class="toolbar-copy">
+        <form id="admin-search-form" action="{{ url_for('admin.dashboard') }}" method="get" class="admin-search-form">
+          <div class="admin-search-row">
+            <input type="text" name="filter" placeholder="輸入書名..." value="">
+            <div class="toolbar-buttons">
+              <button type="button" class="btn btn--ghost adv-toggle" onclick="toggleAdvanced()">進階條件</button>
+              <button type="submit" class="btn btn--primary">搜尋</button>
+              <button type="button" class="btn btn--secondary" id="admin-reset-btn">重置</button>
+            </div>
+          </div>
+
+          <div id="advanced-panel" class="advanced-panel" style="display:none;">
+            <div class="field">
+              <label>櫃位</label>
+              <select name="cabinet" id="cabinet">
+                <option value="">全部</option>
+                {% for cab in all_cabinets %}
+                <option value="{{ cab.name }}">{{ cab.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="field">
+              <label>庫存</label>
+              <select name="status" id="status">
+                <option value="">全部</option>
+                <option value="in">有庫存</option>
+                <option value="out">無庫存</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>作者</label>
+              <input type="text" name="author" id="author" placeholder="作者姓名 (選填)">
+            </div>
+          </div>
+        </form>
+        <div class="admin-replenish">
+          <div class="admin-replenish__head">需要補貨</div>
+          {% if replenish_alerts %}
+          <ul class="admin-replenish__list">
+            {% for alert in replenish_alerts[:6] %}
+            <li>{{ alert.message }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="muted">目前沒有需要補貨的書籍。</p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card admin-quick-card">
+        <div class="card__header">
+          <span class="chip chip--soft">快速操作</span>
+          <h3>管理快捷</h3>
+        </div>
+        <div class="admin-quick-actions">
+          <button type="button" class="btn btn--primary" onclick="handleAddBook()">新增書籍</button>
+          <button type="button" class="btn btn--secondary" onclick="handleCabinetManager()">櫃位管理</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   {% if has_search %}

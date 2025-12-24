@@ -200,7 +200,7 @@ def sync_csv_to_db():
                 cabinet_id=cabinet.id,
             )
             db.session.add(inventory)
-        # No quantity to update - inventory exists or doesn't
+        inventory.in_stock = qty > 0
 
     # Remove inventory rows no longer present (optimized: only query needed columns)
     # Use a more efficient query that only fetches what we need

@@ -3,6 +3,8 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 from database.models import Book, BookTitle, Cabinet, EventSchedule, db
 from app import (
@@ -290,6 +292,7 @@ def list_cabinet_books(cabinet_id):
     books = (
         active_books_query()
         .filter_by(cabinet_id=cabinet.id)
+        .options(joinedload(Book.book_title))
         .join(BookTitle)
         .order_by(BookTitle.title.asc())
         .all()
@@ -316,8 +319,8 @@ def toggle_cabinet_book(cabinet_id, book_id):
     try:
         title = book.title
         book.in_stock = not book.in_stock
-        db.session.commit()
         log_action("toggle_cabinet_book", target=title, details=f"cabinet_id={cabinet_id},in_stock={book.in_stock}")
+        db.session.commit()
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
@@ -468,6 +471,9 @@ def move_cabinet_book(cabinet_id, book_id):
             book.cabinet_id = target.id
         log_action("move_book", target=book.title, details=f"{cabinet_id} -> {target.id}")
         db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        return jsonify({"success": False, "message": "該書已存在於目標櫃位，請重新整理後再試"}), 409
     except Exception as e:
         db.session.rollback()
         return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500

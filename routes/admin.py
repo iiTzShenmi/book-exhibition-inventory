@@ -10,6 +10,7 @@ from app import (
     build_grouped_book_entries,
     cabinet_to_dict,
     log_action,
+    collect_replenish_alerts,
 )
 
 
@@ -63,6 +64,9 @@ def dashboard():
             show_counts=False,
         )
 
+    alerts = collect_replenish_alerts()
+    replenish_alerts = [alert for alert in alerts if alert.get("type") == "low-stock"]
+
     all_cabinets = Cabinet.query.order_by(Cabinet.name).all()
     cabinets_payload = [cabinet_to_dict(cab) for cab in all_cabinets]
     audit_logs = (
@@ -70,9 +74,6 @@ def dashboard():
         .limit(20)
         .all()
     )
-    recent_backups = BackupArchive.query.order_by(BackupArchive.created_at.desc()).limit(5).all()
-    last_backup_ts = recent_backups[0].created_at.isoformat() if recent_backups else None
-
     return render_template(
         "admin_dashboard.html",
         grouped_books=grouped_books,
@@ -80,10 +81,65 @@ def dashboard():
         cabinets_payload=cabinets_payload,
         audit_logs=audit_logs,
         has_search=has_search,
-        last_backup_ts=last_backup_ts,
-        recent_backups=recent_backups,
         authors=authors,
+        replenish_alerts=replenish_alerts,
     )
+
+
+@admin_bp.route("/admin/overview")
+def overview():
+    if not session.get("is_admin"):
+        return redirect(url_for("auth.login"))
+
+    total_titles = BookTitle.query.count()
+    total_inventory = Inventory.query.filter(Inventory.status == "active").count()
+    out_of_stock = Inventory.query.filter(
+        Inventory.status == "active",
+        Inventory.in_stock.is_(False),
+    ).count()
+    cabinets_count = Cabinet.query.count()
+    active_events = EventSchedule.query.filter(EventSchedule.is_active.is_(True)).count()
+    alerts = collect_replenish_alerts()
+
+    return render_template(
+        "admin_overview.html",
+        title="概覽",
+        total_titles=total_titles,
+        total_inventory=total_inventory,
+        out_of_stock=out_of_stock,
+        cabinets_count=cabinets_count,
+        active_events=active_events,
+        alerts=alerts,
+        show_top_sellers=False,
+    )
+
+
+@admin_bp.route("/admin/system")
+def system_page():
+    if not session.get("is_admin"):
+        return redirect(url_for("auth.login"))
+
+    logs = (
+        AuditLog.query.order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    recent_backups = BackupArchive.query.order_by(BackupArchive.created_at.desc()).limit(5).all()
+
+    return render_template(
+        "admin_system.html",
+        title="系統",
+        audit_logs=logs,
+        recent_backups=recent_backups,
+        show_top_sellers=False,
+    )
+
+
+@admin_bp.route("/admin/backups")
+def backup_page():
+    if not session.get("is_admin"):
+        return redirect(url_for("auth.login"))
+    return redirect(url_for("admin.system_page"))
 
 
 
@@ -177,7 +233,6 @@ def admin_events():
                 is_active=is_active,
             )
             db.session.add(evt)
-            db.session.commit()
             log_action("create_event", target=title)
             db.session.commit()
         return redirect(url_for("admin.admin_events"))
@@ -209,7 +264,6 @@ def update_event(event_id):
         event.location = location or None
         event.note = note or None
         event.is_active = is_active
-        db.session.commit()
         log_action("update_event", target=event.title)
         db.session.commit()
     return redirect(url_for("admin.admin_events"))
@@ -222,7 +276,6 @@ def delete_event(event_id):
     event = EventSchedule.query.get_or_404(event_id)
     title = event.title
     db.session.delete(event)
-    db.session.commit()
     log_action("delete_event", target=title)
     db.session.commit()
     return redirect(url_for("admin.admin_events"))

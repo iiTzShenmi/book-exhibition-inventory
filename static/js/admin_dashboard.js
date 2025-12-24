@@ -2,6 +2,15 @@
   const dashboard = document.getElementById('admin-dashboard');
   if (!dashboard) return;
 
+  const originalToast = window.showToast;
+  window.showToast = (msg, success, undo) => {
+    document.querySelectorAll('.toast').forEach((toast) => {
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 200);
+    });
+    if (originalToast) originalToast(msg, success, undo);
+  };
+
   const initialCabinets = (() => {
     try {
       return JSON.parse(dashboard.dataset.allCabinets || '[]');
@@ -1160,11 +1169,8 @@ async function toggleCabinetType(id) {
         item.className = 'backup-item';
         const ts = (data.backup.created_at || '').replace('T', ' ').slice(0, 16);
         item.innerHTML = `<strong>${ts}</strong> <span class="muted">(${data.backup.size_kb} KB)</span>`;
-        const empty = list.querySelector('.muted');
-        if (empty) {
-          empty.remove();
-        }
-        list.prepend(item);
+        list.innerHTML = '';
+        list.appendChild(item);
       }
       showToast(data.message || '備份完成', true, null);
       console.info('[backup] created', data.backups || data);
