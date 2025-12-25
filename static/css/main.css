@@ -984,6 +984,27 @@ textarea:focus {
   pointer-events: auto;
 }
 
+@media (hover: none) {
+  .result-card.has-cover .cover-pop {
+    position: relative;
+    inset: auto;
+    height: auto;
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+    margin-bottom: 8px;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .result-card.has-cover .cover-pop img {
+    height: 200px;
+    object-fit: cover;
+  }
+}
+
 .modal-overlay .cover-modal-box {
   max-width: 1400px;
   width: min(60vw, 1400px);
@@ -1796,6 +1817,51 @@ textarea:focus {
   color: var(--muted);
 }
 
+.info-card--payment {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.info-card__text {
+  display: grid;
+  gap: 4px;
+}
+
+.payment-icons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 0;
+  flex-wrap: wrap;
+}
+
+.payment-icon-wrap {
+  width: 86px;
+  height: 86px;
+  background: #fff;
+  border: 1px solid rgba(18, 24, 38, 0.12);
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(18, 24, 38, 0.08);
+}
+
+.payment-icon {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: saturate(1.05);
+}
+
+.payment-icon--tight {
+  transform: scale(1.08);
+}
+
 @media (max-width: 720px) {
   .info-grid { grid-template-columns: 1fr; }
 }
@@ -1979,6 +2045,17 @@ textarea:focus {
 
 @media (max-width: 720px) {
   .booth-map-body { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .status-row {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .status-row .cab {
+    flex: 1 1 100%;
+  }
 }
 
 .modal-box.large > *:nth-child(2) {
@@ -2269,6 +2346,55 @@ textarea:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .audit-table {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .audit-table__head {
+    display: none;
+  }
+
+  .audit-table__row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+    padding: 16px;
+    box-shadow: var(--shadow-soft);
+    align-items: flex-start;
+  }
+
+  .audit-table__row:nth-child(odd) {
+    background: #fff;
+  }
+
+  .audit-table__row span {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+  }
+
+  .audit-table__row > span:nth-child(1)::before { content: "時間: "; color: var(--muted); font-size: 0.85em; }
+  .audit-table__row > span:nth-child(2)::before { content: "操作: "; color: var(--muted); font-size: 0.85em; }
+  .audit-table__row > span:nth-child(3)::before { content: "對象: "; color: var(--muted); font-size: 0.85em; }
+}
+
+@media (max-width: 720px) {
+  .modal-overlay .cover-modal-box,
+  .cover-modal-box,
+  .modal-box.medium.cover-modal-box {
+    width: min(95vw, 720px);
+    max-width: 95vw;
+    min-height: auto;
+  }
 }
 
 .btn.btn--danger,

@@ -200,9 +200,22 @@
                 <h2>優惠活動</h2>
                 <p>單本88折 / 三本以上85折</p>
               </div>
-              <div class="info-card">
-                <h2>結帳櫃檯</h2>
-                <p>支援現金 / 行動支付</p>
+              <div class="info-card info-card--payment">
+                <div class="info-card__text">
+                  <h2>結帳櫃檯</h2>
+                  <p>支援現金 / 行動支付</p>
+                </div>
+                <div class="payment-icons" aria-label="支援付款方式">
+                  <span class="payment-icon-wrap">
+                    <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/linepay.png') }}" alt="LINE Pay" loading="lazy">
+                  </span>
+                  <span class="payment-icon-wrap">
+                    <img class="payment-icon" src="{{ url_for('static', filename='icons/街口.png') }}" alt="街口支付" loading="lazy">
+                  </span>
+                  <span class="payment-icon-wrap">
+                    <img class="payment-icon" src="{{ url_for('static', filename='icons/全支付.png') }}" alt="全支付" loading="lazy">
+                  </span>
+                </div>
               </div>
             </div>
           </section>
