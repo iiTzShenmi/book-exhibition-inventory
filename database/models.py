@@ -25,6 +25,14 @@ class BookTitle(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# Association table for EventSchedule <-> BookTitle
+event_books = db.Table(
+    "event_books",
+    db.Column("event_id", db.Integer, db.ForeignKey("event_schedule.id"), primary_key=True),
+    db.Column("book_title_id", db.Integer, db.ForeignKey("book_title.id"), primary_key=True),
+)
+
+
 class Inventory(db.Model):
     __tablename__ = "inventory"
     __table_args__ = (db.UniqueConstraint("title_id", "cabinet_id", name="uq_inventory_title_cabinet"),)
@@ -180,6 +188,12 @@ class EventSchedule(db.Model):
     display_order = db.Column(db.Integer, default=0, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    books = db.relationship(
+        "BookTitle",
+        secondary=event_books,
+        backref=db.backref("events", lazy="dynamic"),
+    )
 
 
 # Event listener to catch any Inventory objects with NULL title_id before flush

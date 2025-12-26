@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
@@ -15,6 +16,26 @@ from app import (
 
 
 admin_bp = Blueprint("admin", __name__)
+
+
+def _parse_book_ids(raw_value: str):
+    if not raw_value:
+        return []
+    raw_value = raw_value.strip()
+    if not raw_value:
+        return []
+    if raw_value.startswith("["):
+        try:
+            data = json.loads(raw_value)
+            return [int(x) for x in data if str(x).isdigit()]
+        except json.JSONDecodeError:
+            return []
+    ids = []
+    for part in raw_value.split(","):
+        part = part.strip()
+        if part.isdigit():
+            ids.append(int(part))
+    return ids
 
 
 @admin_bp.route("/admin")
@@ -223,6 +244,7 @@ def admin_events():
         location = (request.form.get("location") or "").strip()
         note = (request.form.get("note") or "").strip()
         is_active = request.form.get("is_active") == "on"
+        book_ids = _parse_book_ids(request.form.get("book_ids", ""))
         if title and time_text and description:
             evt = EventSchedule(
                 title=title,
@@ -232,6 +254,8 @@ def admin_events():
                 note=note or None,
                 is_active=is_active,
             )
+            if book_ids:
+                evt.books = BookTitle.query.filter(BookTitle.id.in_(book_ids)).all()
             db.session.add(evt)
             log_action("create_event", target=title)
             db.session.commit()
@@ -257,6 +281,7 @@ def update_event(event_id):
     location = (request.form.get("location") or "").strip()
     note = (request.form.get("note") or "").strip()
     is_active = request.form.get("is_active") == "on"
+    book_ids = _parse_book_ids(request.form.get("book_ids", ""))
     if title and time_text and description:
         event.title = title
         event.time_text = time_text
@@ -264,6 +289,10 @@ def update_event(event_id):
         event.location = location or None
         event.note = note or None
         event.is_active = is_active
+        if book_ids:
+            event.books = BookTitle.query.filter(BookTitle.id.in_(book_ids)).all()
+        else:
+            event.books = []
         log_action("update_event", target=event.title)
         db.session.commit()
     return redirect(url_for("admin.admin_events"))

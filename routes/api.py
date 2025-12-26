@@ -189,22 +189,39 @@ def search():
 
 @api_bp.route("/book_details/<string:title>")
 def book_details(title):
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
-
     books = active_books_query().join(BookTitle).filter(BookTitle.title == title).all()
     if not books:
         return jsonify({"error": "Book not found"}), 404
 
+    is_admin = bool(session.get("is_admin"))
     grouped_map = build_grouped_book_entries(
         books,
-        include_id=True,
+        include_id=is_admin,
         reference_books=books,
         include_reserve=True,
-        include_reserve_out_of_stock=True,
-        include_cabinet_id=True,
+        include_reserve_out_of_stock=is_admin,
+        include_cabinet_id=is_admin,
     )
     entries = grouped_map.get(title, [])
+
+    if not is_admin:
+        modal_html = render_template_string("""
+        <div class="modal-content">
+        <h2>{{ title }}</h2>
+        {% for entry in entries %}
+          <div class="modal-row">
+            <span>{{ entry.cabinet }}</span>
+            <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
+          </div>
+        {% endfor %}
+        <button class="close-btn" onclick="closeModal()">關閉</button>
+        </div>
+        """, title=title, entries=entries)
+
+        response = make_response(modal_html)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     modal_html = render_template_string("""
         <div class="modal-content">
@@ -427,10 +444,46 @@ def get_events():
             "description": evt.description,
             "location": evt.location,
             "note": evt.note,
+            "books": [
+                {
+                    "id": book.id,
+                    "title": book.title,
+                    "author": book.author,
+                    "cover_url": cover_url_for_title(book),
+                }
+                for book in (evt.books or [])
+            ],
         }
         for evt in events
     ]
     return jsonify({"success": True, "events": payload})
+
+
+@api_bp.route("/api/book_titles")
+def book_titles():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify({"success": True, "results": []})
+
+    title_filter = BookTitle.title.ilike(f"%{query}%")
+    author_filter = BookTitle.author.ilike(f"%{query}%")
+    results = (
+        BookTitle.query
+        .filter(title_filter | author_filter)
+        .order_by(BookTitle.updated_at.desc())
+        .limit(20)
+        .all()
+    )
+    payload = [
+        {
+            "id": title.id,
+            "title": title.title,
+            "author": title.author,
+            "cover_url": cover_url_for_title(title),
+        }
+        for title in results
+    ]
+    return jsonify({"success": True, "results": payload})
 
 
 @api_bp.route("/api/realtime_status")

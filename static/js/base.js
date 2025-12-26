@@ -449,41 +449,284 @@
 
   let eventRotationTimer = null;
 
+  async function openEventBooksModal(evt) {
+    const overlay = document.getElementById('event-books-overlay');
+    const listEl = document.getElementById('event-books-list');
+    const titleEl = document.getElementById('event-books-title');
+    if (!overlay || !listEl) return;
+
+    const books = Array.isArray(evt?.books) ? evt.books : [];
+    const eventTitle = evt?.title || '';
+
+    if (titleEl) {
+      titleEl.textContent = eventTitle ? `「${eventTitle}」相關書籍` : '相關書籍';
+    }
+
+    listEl.innerHTML = '';
+    if (!books.length) {
+      const empty = document.createElement('div');
+      empty.className = 'event-books-empty muted';
+      empty.textContent = '目前沒有相關書籍';
+      listEl.appendChild(empty);
+      overlay.style.display = 'flex';
+      return;
+    }
+
+    const content = document.createElement('div');
+    content.className = 'cover-modal-content event-books-content';
+
+    const coverCol = document.createElement('div');
+    coverCol.className = 'cover-modal-body';
+
+    const detailCol = document.createElement('div');
+    detailCol.className = 'event-books-panel';
+
+    const meta = document.createElement('div');
+    meta.className = 'cover-modal-meta';
+
+    const cabinets = document.createElement('div');
+    cabinets.className = 'cover-modal-cabinets';
+
+    const selector = document.createElement('div');
+    selector.className = 'event-book-selector';
+
+    detailCol.appendChild(meta);
+    detailCol.appendChild(cabinets);
+    detailCol.appendChild(selector);
+
+    content.appendChild(coverCol);
+    content.appendChild(detailCol);
+    listEl.appendChild(content);
+
+    const renderSelector = (activeIndex) => {
+      selector.innerHTML = '';
+      if (books.length <= 1) {
+        selector.style.display = 'none';
+        return;
+      }
+      selector.style.display = 'flex';
+      books.forEach((book, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `event-book-thumb${idx === activeIndex ? ' is-active' : ''}`;
+        btn.setAttribute('aria-label', book?.title || '書籍');
+        if (book?.cover_url) {
+          const img = document.createElement('img');
+          img.src = book.cover_url;
+          img.alt = book.title || '';
+          btn.appendChild(img);
+        } else {
+          btn.textContent = '📘';
+        }
+        btn.addEventListener('click', () => renderBook(book, idx));
+        selector.appendChild(btn);
+      });
+    };
+
+    const renderBookMeta = (book) => {
+      const titleText = book?.title || '未命名書籍';
+      const authorText = book?.author || '';
+      meta.innerHTML = `
+        <div class="cover-meta-row">
+          <div class="cover-title">${titleText}</div>
+          ${authorText ? `<div class="cover-author">作者：${authorText}</div>` : ''}
+        </div>
+      `;
+    };
+
+    const renderBookCover = (book) => {
+      coverCol.innerHTML = '';
+      if (book?.cover_url) {
+        const img = document.createElement('img');
+        img.className = 'cover-modal-img';
+        img.src = book.cover_url;
+        img.alt = book.title || '';
+        coverCol.appendChild(img);
+      } else {
+        const fallback = document.createElement('div');
+        fallback.className = 'event-books-empty muted';
+        fallback.textContent = '沒有封面';
+        coverCol.appendChild(fallback);
+      }
+    };
+
+    const renderBookCabinets = async (book) => {
+      cabinets.innerHTML = '<div class="muted">載入櫃位中...</div>';
+      if (!book?.title) {
+        cabinets.innerHTML = '<div class="muted">找不到書名</div>';
+        return;
+      }
+      try {
+        const res = await fetch(`/book_details/${encodeURIComponent(book.title)}`, { cache: 'no-store' });
+        const html = await res.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const rows = Array.from(doc.querySelectorAll('.modal-row'));
+        cabinets.innerHTML = '';
+        if (!rows.length) {
+          cabinets.innerHTML = '<div class="muted">沒有可顯示的櫃位資訊</div>';
+          return;
+        }
+        rows.forEach((row) => {
+          const cabinetEl = row.querySelector('span');
+          const statusEl = row.querySelector('.stat');
+          const cabinet = cabinetEl ? cabinetEl.textContent.trim() : '';
+          const status = statusEl ? statusEl.textContent.trim() : '';
+          const statusClasses = statusEl ? Array.from(statusEl.classList) : [];
+          const toneClass = statusClasses.find(cls => cls.includes('out') || cls.includes('in') || cls.startsWith('status--')) || '';
+          const rowClass = toneClass.includes('out') ? 'out-stock' : toneClass.includes('in') ? 'in-stock' : '';
+
+          const rowDiv = document.createElement('div');
+          rowDiv.className = `cover-cab-row ${rowClass}`.trim();
+
+          const cabSpan = document.createElement('span');
+          cabSpan.className = 'cabinet';
+          cabSpan.textContent = cabinet;
+
+          const statSpan = document.createElement('span');
+          statSpan.className = `status ${toneClass}`.trim();
+          statSpan.textContent = status;
+
+          rowDiv.appendChild(cabSpan);
+          rowDiv.appendChild(statSpan);
+          cabinets.appendChild(rowDiv);
+        });
+      } catch (err) {
+        console.error(err);
+        cabinets.innerHTML = '<div class="muted">載入櫃位資訊失敗</div>';
+      }
+    };
+
+    const renderBook = (book, index) => {
+      renderBookCover(book);
+      renderBookMeta(book);
+      renderBookCabinets(book);
+      renderSelector(index);
+    };
+
+    renderBook(books[0], 0);
+    overlay.style.display = 'flex';
+  }
+
+  function closeEventBooksModal() {
+    const overlay = document.getElementById('event-books-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
   function buildEventSlide(evt) {
     const slide = document.createElement('div');
     slide.className = 'event-slide';
+    const banner = document.createElement('section');
+    banner.className = 'event-banner';
 
-    const time = document.createElement('h3');
-    time.textContent = evt.time_text || '';
-    slide.appendChild(time);
+    const content = document.createElement('div');
+    content.className = 'event-banner__content';
 
-    if (evt.description) {
+    const tag = document.createElement('div');
+    tag.className = 'event-tag';
+    tag.textContent = '✨ 現在主打';
+    content.appendChild(tag);
+
+    const title = document.createElement('h2');
+    title.className = 'event-title';
+    title.textContent = evt?.title || '活動時段';
+    content.appendChild(title);
+
+    const time = document.createElement('div');
+    time.className = 'event-time';
+    time.textContent = evt?.time_text || '';
+    if (!time.textContent) {
+      time.style.display = 'none';
+    }
+    content.appendChild(time);
+
+    if (evt?.description) {
       const desc = document.createElement('p');
-      desc.className = 'muted';
+      desc.className = 'event-desc';
       desc.textContent = evt.description;
-      slide.appendChild(desc);
+      content.appendChild(desc);
     }
 
-    const list = document.createElement('ul');
-    list.className = 'hero__list';
-    if (evt.location) {
+    const meta = document.createElement('ul');
+    meta.className = 'event-meta';
+    const metaItems = [];
+    if (evt?.location) metaItems.push(`📍 ${evt.location}`);
+    if (evt?.note) metaItems.push(`🎁 ${evt.note}`);
+    metaItems.forEach((text) => {
       const li = document.createElement('li');
-      li.textContent = `📍 ${evt.location}`;
-      list.appendChild(li);
+      li.textContent = text;
+      meta.appendChild(li);
+    });
+    if (metaItems.length) {
+      content.appendChild(meta);
     }
-    if (evt.title) {
-      const li = document.createElement('li');
-      li.textContent = `🗣️ ${evt.title}`;
-      list.appendChild(li);
+
+    const books = Array.isArray(evt?.books) ? evt.books : [];
+    const cta = document.createElement('a');
+    cta.className = 'btn btn--primary';
+    cta.href = '#';
+    cta.textContent = books.length ? `查看 ${books.length} 本相關書籍` : '查看展場推薦';
+    cta.addEventListener('click', (event) => {
+      event.preventDefault();
+      openEventBooksModal(evt);
+    });
+    content.appendChild(cta);
+
+    banner.appendChild(content);
+
+    const visuals = document.createElement('div');
+    visuals.className = 'event-banner__visuals';
+    const grid = document.createElement('div');
+    grid.className = 'book-showcase-grid';
+
+    const maxCovers = 3;
+    const picks = books.slice(0, maxCovers);
+    picks.forEach((book, idx) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `showcase-book${idx === 0 ? ' is-primary' : ''}`;
+      item.setAttribute('aria-label', book?.title ? `查看 ${book.title}` : '查看書籍');
+      if (book?.cover_url) {
+        const img = document.createElement('img');
+        img.src = book.cover_url;
+        img.alt = book.title || '';
+        item.appendChild(img);
+      } else {
+        item.textContent = '📘';
+      }
+      if (book?.title && typeof window.openBookModal === 'function') {
+        item.addEventListener('click', () => window.openBookModal(book.title));
+      }
+      grid.appendChild(item);
+    });
+
+    if (books.length > maxCovers) {
+      const more = document.createElement('a');
+      more.className = 'showcase-more';
+      more.href = '#';
+      more.setAttribute('aria-label', '查看更多推薦書籍');
+      more.addEventListener('click', (event) => {
+        event.preventDefault();
+        openEventBooksModal(evt);
+      });
+
+      const count = document.createElement('span');
+      count.textContent = `+${books.length - maxCovers}`;
+      const label = document.createElement('small');
+      label.textContent = 'More';
+      more.appendChild(count);
+      more.appendChild(label);
+      grid.appendChild(more);
     }
-    if (evt.note) {
-      const li = document.createElement('li');
-      li.textContent = `🎁 ${evt.note}`;
-      list.appendChild(li);
+
+    visuals.appendChild(grid);
+    banner.appendChild(visuals);
+
+    if (!books.length) {
+      banner.classList.add('event-banner--no-books');
     }
-    if (list.children.length) {
-      slide.appendChild(list);
-    }
+
+    slide.appendChild(banner);
     return slide;
   }
 
@@ -555,7 +798,14 @@
         let deltaX = 0;
         let dragging = false;
 
+        const isInteractiveTarget = (event) => {
+          const target = event.target;
+          if (!target || !target.closest) return false;
+          return Boolean(target.closest('a, button, input, textarea, select'));
+        };
+
         const onPointerDown = (event) => {
+          if (isInteractiveTarget(event)) return;
           dragging = true;
           startX = event.clientX;
           deltaX = 0;
@@ -642,6 +892,7 @@
       if (event.key !== 'Escape') return;
       const modals = [
         'modal-overlay',
+        'event-books-overlay',
         'book-modal-overlay',
         'cabinet-modal-overlay',
         'cabinet-manager-overlay',
@@ -901,6 +1152,15 @@
       notifBtn.addEventListener('click', openNotif);
       loadNotifications();
       setInterval(loadNotifications, 120000);
+    }
+
+    const eventOverlay = document.getElementById('event-books-overlay');
+    if (eventOverlay) {
+      eventOverlay.addEventListener('click', (event) => {
+        if (event.target === eventOverlay || event.target.closest('[data-close-event-books]')) {
+          closeEventBooksModal();
+        }
+      });
     }
   });
 })();

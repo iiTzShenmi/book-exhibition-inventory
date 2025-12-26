@@ -56,7 +56,7 @@
 
     <main class="page-content">
       {% if request.endpoint in ['inventory.home', 'api.search'] %}
-      <section class="hero">
+      <section class="hero hero--single">
         <div class="hero__text">
           <p class="eyebrow hero-brand">
             <span class="brand__mark">⚡</span>
@@ -67,16 +67,34 @@
           </p>
           <h1>EXIS 展場庫存系統</h1>
           <p class="muted">輸入書名、作者或關鍵字，立即查詢展示櫃或備書櫃的庫存狀態。</p>
-          <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
-            <div class="search-box">
-              <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
-              <button class="btn btn--primary" type="submit">搜尋</button>
+          <div class="hero__search-row">
+            <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
+              <div class="search-box">
+                <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
+                <button class="btn btn--primary" type="submit">搜尋</button>
+              </div>
+              <div class="hint-row">
+                <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
+                <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
+              </div>
+            </form>
+            <div class="info-card info-card--compact discount-ticket">
+              <div class="ticket-left">
+                <div class="ticket-icon">🏷️</div>
+                <div class="ticket-main">
+                  <span class="promo-label">展場限定</span>
+                  <div class="promo-value">85<small>折</small></div>
+                  <span class="promo-sub">三本以上優惠</span>
+                </div>
+              </div>
+              <div class="ticket-divider"></div>
+              <div class="ticket-right">
+                <p class="tiny-text">單本優惠 <strong>88折</strong></p>
+                <p class="tiny-text muted">*特價品除外</p>
+                <button type="button" class="btn-xs btn--outline">View Details</button>
+              </div>
             </div>
-            <div class="hint-row">
-              <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
-              <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
-            </div>
-          </form>
+          </div>
           <div class="mascot-container">
             <div class="pixel-worker standing">
               <div class="sprite"></div>
@@ -85,23 +103,6 @@
               Hi! I'm <strong>Exi</strong>.<br>
               EXIS keeps the floor calm and stocked.
             </div>
-          </div>
-        </div>
-        <div class="hero__card hero__card--event" id="event-card">
-          <div class="hero__badge">活動時段</div>
-          <div class="event-carousel">
-            <div class="event-track" id="event-track">
-              <div class="event-slide">
-                <h3>每日 14:00 / 17:00</h3>
-                <p class="muted">作者快閃分享 • 現場 Q&A</p>
-                <ul class="hero__list">
-                  <li>📍 舞台區域</li>
-                  <li>🗣️ 作者快閃分享</li>
-                  <li>🎁 現場小禮物</li>
-                </ul>
-              </div>
-            </div>
-            <div class="event-dots" id="event-dots" aria-label="活動切換"></div>
           </div>
         </div>
       </section>
@@ -156,6 +157,23 @@
           </div>
         </div>
       </div>
+
+      <div id="event-books-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box medium cover-modal-box event-books-modal">
+          <button type="button" class="modal-close" data-close-event-books>&times;</button>
+          <div class="modal-header">
+            <div>
+              <p class="eyebrow">活動書單</p>
+              <h2 id="event-books-title">相關書籍</h2>
+            </div>
+          </div>
+          <div id="event-books-list" class="event-books-list"></div>
+        </div>
+      </div>
+
+      <div id="book-modal-overlay" class="modal-overlay" style="display:none;">
+        <div id="book-modal-box" class="modal-box medium"></div>
+      </div>
       {% endif %}
       
       {% if request.blueprint == 'admin' %}
@@ -193,30 +211,34 @@
           {% if request.blueprint != 'admin' and request.endpoint in ['inventory.home', 'api.search'] %}
           <section class="info-hub">
             <div class="section-head">
-              <h1>🧭 展場資訊❗❗</h1>
+              <p class="eyebrow">Highlights</p>
+              <h1>🧭 展場資訊</h1>
             </div>
-            <div class="info-grid">
-              <div class="info-card">
-                <h2>優惠活動</h2>
-                <p>單本88折 / 三本以上85折</p>
-              </div>
-              <div class="info-card info-card--payment">
-                <div class="info-card__text">
-                  <h2>結帳櫃檯</h2>
-                  <p>支援現金 / 行動支付</p>
+
+            <div class="info-grid info-grid--single">
+              <div class="event-carousel" id="event-carousel">
+                <div class="event-track" id="event-track">
+                  <div class="event-slide">
+                    <section class="event-banner">
+                      <div class="event-banner__content">
+                        <div class="event-tag">✨ 現在主打</div>
+                        <h2 class="event-title">活動時段</h2>
+                        <div class="event-time">每日 14:00 / 17:00</div>
+                        <p class="event-desc">作者快閃分享 • 現場 Q&A</p>
+                        <ul class="event-meta">
+                          <li>📍 舞台區域</li>
+                          <li>🎁 現場小禮物</li>
+                        </ul>
+                        <a class="btn btn--primary" href="#top-sell">查看相關書籍</a>
+                      </div>
+                      <div class="event-banner__visuals">
+                        <div class="book-showcase-grid"></div>
+                      </div>
+                    </section>
+                  </div>
                 </div>
-                <div class="payment-icons" aria-label="支援付款方式">
-                  <span class="payment-icon-wrap">
-                    <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/linepay.png') }}" alt="LINE Pay" loading="lazy">
-                  </span>
-                  <span class="payment-icon-wrap">
-                    <img class="payment-icon" src="{{ url_for('static', filename='icons/街口.png') }}" alt="街口支付" loading="lazy">
-                  </span>
-                  <span class="payment-icon-wrap">
-                    <img class="payment-icon" src="{{ url_for('static', filename='icons/全支付.png') }}" alt="全支付" loading="lazy">
-                  </span>
-                </div>
               </div>
+              <div class="event-dots" id="event-dots" aria-label="活動切換"></div>
             </div>
           </section>
           {% endif %}
@@ -228,7 +250,7 @@
       {% endif %}
       
       {% if show_top_sellers %}
-      <section class="top-sell">
+      <section class="top-sell" id="top-sell">
         <div class="section-head">
           <p class="eyebrow">熱門選書</p>
           <h2>🔥 展場熱銷</h2>
@@ -276,6 +298,35 @@
           </div>
         </div>
       </section>
+      {% if request.blueprint != 'admin' %}
+      <section class="qa-section">
+        <div class="section-head">
+          <h2>🙋 常見問題</h2>
+          <p class="muted">現場服務說明與付款方式提醒。</p>
+        </div>
+        <div class="qa-grid">
+          <div class="qa-card">
+            <h3>付款方式</h3>
+            <p>本系統僅供查詢，付款請至結帳櫃檯。</p>
+            <div class="payment-icons" aria-label="支援付款方式">
+              <span class="payment-icon-wrap">
+                <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/linepay.png') }}" alt="LINE Pay" loading="lazy">
+              </span>
+              <span class="payment-icon-wrap">
+                <img class="payment-icon" src="{{ url_for('static', filename='icons/街口.png') }}" alt="街口支付" loading="lazy">
+              </span>
+              <span class="payment-icon-wrap">
+                <img class="payment-icon" src="{{ url_for('static', filename='icons/全支付.png') }}" alt="全支付" loading="lazy">
+              </span>
+            </div>
+          </div>
+          <div class="qa-card">
+            <h3>可以線上結帳嗎？</h3>
+            <p>目前不提供線上付款，請於現場櫃檯完成結帳。</p>
+          </div>
+        </div>
+      </section>
+      {% endif %}
       {% endif %}
     </main>
 
