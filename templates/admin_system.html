@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="admin-system">
+  <div class="section-head">
+    <p class="eyebrow">系統</p>
+    <div class="section-head__row">
+      <h2>⚙️ 系統管理</h2>
+      <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
+        🔔
+        <span id="notif-count" class="notif-count" style="display:none;">0</span>
+      </button>
+    </div>
+    <p class="muted">備份與操作紀錄集中管理。</p>
+  </div>
+
+  <div class="system-grid">
+    <div class="card admin-backup-card">
+      <div class="card__header">
+        <span class="chip chip--soft">資料保存</span>
+        <h3>雲端備份</h3>
+      </div>
+      <p class="muted">備份檔案會直接儲存在資料庫中。</p>
+      <button type="button" class="btn btn--primary" id="backup-btn">立即雲端備份</button>
+      <div id="backup-list" class="backup-list">
+        {% if recent_backups %}
+          {% for backup in recent_backups %}
+          <div class="backup-item">
+            <strong>{{ backup.created_at.strftime('%m/%d %H:%M') }}</strong>
+            <span class="muted">({{ backup.size_kb }} KB)</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="muted">尚無備份紀錄</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card__header system-audit-header">
+      <div>
+        <span class="chip chip--soft">操作紀錄</span>
+        <h3>最新 200 筆</h3>
+      </div>
+      <div class="section-head__actions">
+        <a class="btn btn--secondary btn--sm" href="{{ url_for('admin.export_audit_csv') }}">匯出 CSV</a>
+      </div>
+    </div>
+    {% if audit_logs %}
+    <div class="audit-table">
+      <div class="audit-table__head">
+        <span>時間</span>
+        <span>動作</span>
+        <span>目標</span>
+        <span>操作者</span>
+        <span>細節</span>
+      </div>
+      {% for log in audit_logs %}
+      <div class="audit-table__row">
+        <span class="audit-time">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+        <span class="audit-action">{{ log.action }}</span>
+        <span class="audit-target">{{ log.target or '-' }}</span>
+        <span class="audit-actor">{{ log.actor or '-' }}</span>
+        <span class="audit-details">{{ log.details or '-' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">尚無稽核紀錄。</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/admin_backup.js') }}" defer></script>
+{% endblock %}

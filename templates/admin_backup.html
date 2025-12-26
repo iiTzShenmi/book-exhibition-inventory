@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="admin-backups">
+  <div class="section-head">
+    <p class="eyebrow">資料備份</p>
+    <h2>☁️ 雲端備份</h2>
+    <p class="muted">備份檔案會直接儲存在資料庫中，無需下載。</p>
+  </div>
+
+  <div class="card admin-backup-card">
+    <div class="card__header">
+      <span class="chip chip--soft">最新備份</span>
+      <h3>備份紀錄</h3>
+    </div>
+    <button type="button" class="btn btn--primary" id="backup-btn">立即雲端備份</button>
+    <div id="backup-list" class="backup-list">
+      {% if latest_backup %}
+        <div class="backup-item">
+          <strong>{{ latest_backup.created_at.strftime('%m/%d %H:%M') }}</strong>
+          <span class="muted">({{ latest_backup.size_kb }} KB)</span>
+        </div>
+      {% else %}
+        <div class="muted">尚無備份紀錄</div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/admin_backup.js') }}" defer></script>
+{% endblock %}

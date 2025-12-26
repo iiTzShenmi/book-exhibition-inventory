@@ -1,0 +1,283 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="admin-events">
+  <div class="section-head">
+    <p class="eyebrow">活動管理</p>
+    <div class="section-head__row">
+      <h2>📅 Event Schedule</h2>
+      <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
+        🔔
+        <span id="notif-count" class="notif-count" style="display:none;">0</span>
+      </button>
+    </div>
+    <p class="muted">新增、調整或停用展場活動。</p>
+  </div>
+
+  <div class="card">
+    <div class="card__header">
+      <span class="chip chip--soft">新增活動</span>
+      <h3>建立活動</h3>
+    </div>
+    <form method="post" action="{{ url_for('admin.admin_events') }}" class="admin-event-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="event-form-grid">
+        <label class="event-field">
+          <span>標題</span>
+          <input type="text" name="title" placeholder="作者快閃分享" required>
+        </label>
+        <label class="event-field">
+          <span>時間</span>
+          <input type="text" name="time_text" placeholder="每日 14:00 / 17:00" required>
+        </label>
+        <label class="event-field">
+          <span>說明</span>
+          <input type="text" name="description" placeholder="現場 Q&A" required>
+        </label>
+        <label class="event-field">
+          <span>地點</span>
+          <input type="text" name="location" placeholder="舞台區域">
+        </label>
+        <label class="event-field">
+          <span>備註</span>
+          <input type="text" name="note" placeholder="現場小禮物">
+        </label>
+      </div>
+      <div class="event-book-picker">
+        <span class="event-book-picker__label">關聯書籍</span>
+        <div class="search-picker-wrapper">
+          <input type="text" class="book-picker-input" placeholder="輸入書名或作者以加入...">
+          <div class="picker-dropdown"></div>
+        </div>
+        <div class="selected-tags-container"></div>
+        <input type="hidden" name="book_ids" class="book-ids-input" value="">
+      </div>
+      <label class="event-switch">
+        <input type="checkbox" name="is_active" checked>
+        <span class="switch-track"><span class="switch-thumb"></span></span>
+        <span>啟用</span>
+      </label>
+      <button class="btn btn--primary" type="submit">新增活動</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card__header">
+      <span class="chip chip--soft">現有活動</span>
+      <h3>活動列表</h3>
+    </div>
+    {% if events %}
+    <div class="event-list" id="event-list">
+      {% for event in events %}
+      <form method="post" action="{{ url_for('admin.update_event', event_id=event.id) }}" class="event-row" data-event-id="{{ event.id }}" draggable="true">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="event-drag-hint" title="拖曳排序">⠿</div>
+        <div class="event-fields">
+          <label class="event-field">
+            <span>標題</span>
+            <input type="text" name="title" value="{{ event.title }}" required>
+          </label>
+          <label class="event-field">
+            <span>時間</span>
+            <input type="text" name="time_text" value="{{ event.time_text }}" required>
+          </label>
+          <label class="event-field">
+            <span>說明</span>
+            <input type="text" name="description" value="{{ event.description or '' }}" placeholder="現場 Q&A" required>
+          </label>
+          <label class="event-field">
+            <span>地點</span>
+            <input type="text" name="location" value="{{ event.location or '' }}" placeholder="舞台區域">
+          </label>
+          <label class="event-field">
+            <span>備註</span>
+            <input type="text" name="note" value="{{ event.note or '' }}" placeholder="現場小禮物">
+          </label>
+        </div>
+        <div class="event-book-picker">
+          <span class="event-book-picker__label">關聯書籍</span>
+          <div class="search-picker-wrapper">
+            <input type="text" class="book-picker-input" placeholder="輸入書名或作者以加入...">
+            <div class="picker-dropdown"></div>
+          </div>
+          <div class="selected-tags-container">
+            {% for book in event.books %}
+            <span class="book-tag" data-id="{{ book.id }}">
+              {{ book.title }}
+              <button type="button" class="tag-remove" aria-label="移除">×</button>
+            </span>
+            {% endfor %}
+          </div>
+          <input type="hidden" name="book_ids" class="book-ids-input" value="{{ event.books | map(attribute='id') | join(',') }}">
+        </div>
+        <label class="event-switch">
+          <input type="checkbox" name="is_active" {% if event.is_active %}checked{% endif %}>
+          <span class="switch-track"><span class="switch-thumb"></span></span>
+          <span>啟用</span>
+        </label>
+        <div class="event-actions">
+          <button class="btn btn--secondary btn--sm" type="submit">更新</button>
+          <button class="btn btn--secondary btn--danger-outline btn--sm" type="submit" formaction="{{ url_for('admin.delete_event', event_id=event.id) }}">刪除</button>
+        </div>
+      </form>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">尚無活動資料</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (() => {
+    const list = document.getElementById('event-list');
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+    let dragEl = null;
+
+    if (list) {
+      list.addEventListener('dragstart', (event) => {
+        const row = event.target.closest('.event-row');
+        if (!row) return;
+        dragEl = row;
+        row.classList.add('event-row--dragging');
+        event.dataTransfer.effectAllowed = 'move';
+      });
+
+      list.addEventListener('dragend', () => {
+        if (dragEl) dragEl.classList.remove('event-row--dragging');
+        dragEl = null;
+      });
+
+      list.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        const target = event.target.closest('.event-row');
+        if (!target || target === dragEl) return;
+        const rect = target.getBoundingClientRect();
+        const shouldInsertAfter = event.clientY > rect.top + rect.height / 2;
+        if (shouldInsertAfter) {
+          target.after(dragEl);
+        } else {
+          target.before(dragEl);
+        }
+      });
+
+      list.addEventListener('drop', async (event) => {
+        event.preventDefault();
+        if (!dragEl) return;
+        const ids = Array.from(list.querySelectorAll('.event-row'))
+          .map((row) => Number(row.dataset.eventId))
+          .filter((id) => Number.isFinite(id));
+        try {
+          await fetch('{{ url_for("admin.reorder_events") }}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrf,
+            },
+            body: JSON.stringify({ ids }),
+          });
+        } catch (err) {
+          console.error(err);
+        }
+      });
+    }
+
+    const initBookPicker = (picker) => {
+      const input = picker.querySelector('.book-picker-input');
+      const dropdown = picker.querySelector('.picker-dropdown');
+      const tags = picker.querySelector('.selected-tags-container');
+      const hidden = picker.querySelector('.book-ids-input');
+      if (!input || !dropdown || !tags || !hidden) return;
+
+      const selected = new Map();
+      tags.querySelectorAll('.book-tag').forEach((tag) => {
+        const id = Number(tag.dataset.id);
+        const title = tag.firstChild?.textContent?.trim() || '';
+        if (Number.isFinite(id)) selected.set(id, { id, title });
+      });
+
+      const syncHidden = () => {
+        hidden.value = Array.from(selected.keys()).join(',');
+      };
+
+      const addTag = (book) => {
+        if (!book || selected.has(book.id)) return;
+        selected.set(book.id, book);
+        const tag = document.createElement('span');
+        tag.className = 'book-tag';
+        tag.dataset.id = String(book.id);
+        tag.innerHTML = `${book.title}<button type="button" class="tag-remove" aria-label="移除">×</button>`;
+        tags.appendChild(tag);
+        syncHidden();
+      };
+
+      tags.addEventListener('click', (event) => {
+        const btn = event.target.closest('.tag-remove');
+        if (!btn) return;
+        const tag = btn.closest('.book-tag');
+        const id = Number(tag?.dataset.id);
+        if (tag) tag.remove();
+        if (Number.isFinite(id)) selected.delete(id);
+        syncHidden();
+      });
+
+      input.addEventListener('input', async (event) => {
+        const query = event.target.value.trim();
+        if (query.length < 2) {
+          dropdown.style.display = 'none';
+          dropdown.innerHTML = '';
+          return;
+        }
+        try {
+          const res = await fetch(`/api/book_titles?q=${encodeURIComponent(query)}`);
+          const data = await res.json();
+          const results = Array.isArray(data?.results) ? data.results : [];
+          dropdown.innerHTML = '';
+          if (!results.length) {
+            dropdown.style.display = 'none';
+            return;
+          }
+          results.forEach((book) => {
+            const item = document.createElement('div');
+            item.className = 'picker-item';
+            item.dataset.id = String(book.id);
+            item.dataset.title = book.title || '';
+            item.innerHTML = `
+              ${book.cover_url ? `<img src="${book.cover_url}" alt="${book.title || ''}">` : '<span class="picker-cover-placeholder">📘</span>'}
+              <span>${book.title || ''}</span>
+            `;
+            dropdown.appendChild(item);
+          });
+          dropdown.style.display = 'block';
+        } catch (err) {
+          console.error(err);
+          dropdown.style.display = 'none';
+        }
+      });
+
+      dropdown.addEventListener('click', (event) => {
+        const item = event.target.closest('.picker-item');
+        if (!item) return;
+        const id = Number(item.dataset.id);
+        const title = item.dataset.title || '';
+        addTag({ id, title });
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+        input.value = '';
+      });
+
+      document.addEventListener('click', (event) => {
+        if (picker.contains(event.target)) return;
+        dropdown.style.display = 'none';
+      });
+
+      syncHidden();
+    };
+
+    document.querySelectorAll('.event-book-picker').forEach(initBookPicker);
+  })();
+</script>
+{% endblock %}

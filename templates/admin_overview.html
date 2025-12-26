@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="admin-overview">
+  <div class="section-head">
+    <p class="eyebrow">總覽</p>
+    <div class="section-head__row">
+      <h2>📊 系統概覽</h2>
+      <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
+        🔔
+        <span id="notif-count" class="notif-count" style="display:none;">0</span>
+      </button>
+    </div>
+    <p class="muted">快速掌握展場現況與需要注意的項目。</p>
+  </div>
+
+  <div class="overview-grid">
+    <div class="card stat-card">
+      <span class="stat-label">書目數量</span>
+      <strong class="stat-value">{{ total_titles }}</strong>
+      <span class="muted">不同書名</span>
+    </div>
+    <div class="card stat-card">
+      <span class="stat-label">現場書籍</span>
+      <strong class="stat-value">{{ total_inventory }}</strong>
+      <span class="muted">啟用中的庫存</span>
+    </div>
+    <div class="card stat-card">
+      <span class="stat-label">展示缺貨</span>
+      <strong class="stat-value">{{ out_of_stock }}</strong>
+      <span class="muted">需補貨</span>
+    </div>
+    <div class="card stat-card">
+      <span class="stat-label">展場櫃位</span>
+      <strong class="stat-value">{{ cabinets_count }}</strong>
+      <span class="muted">展示 + 備書</span>
+    </div>
+    <div class="card stat-card">
+      <span class="stat-label">活動狀態</span>
+      <strong class="stat-value">{{ active_events }}</strong>
+      <span class="muted">目前啟用</span>
+    </div>
+  </div>
+
+  <div class="card attention-card">
+    <div class="card__header">
+      <span class="chip chip--soft">需要注意</span>
+      <h3>補貨 / 展示提醒</h3>
+    </div>
+    {% if alerts %}
+    <ul class="attention-list">
+      {% for item in alerts[:8] %}
+      <li>{{ item.message }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">目前沒有需要處理的提醒。</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
