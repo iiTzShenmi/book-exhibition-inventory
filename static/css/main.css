@@ -240,7 +240,7 @@ a {
   border-radius: 16px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.05);
-  max-width: 520px;
+  width: 100%;
 }
 
 .mascot-bubble {
@@ -793,6 +793,12 @@ textarea:focus {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.event-hint {
+  margin: 0;
+  color: rgba(18, 24, 38, 0.65);
+  font-size: 0.9rem;
 }
 
 .event-meta {
@@ -2189,6 +2195,12 @@ textarea:focus {
 }
 
 /* --- ENHANCED INFO CARDS --- */
+.discount-stack {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+}
+
 .discount-ticket {
   background: linear-gradient(135deg, #ff6b6b, #ee5253);
   color: #fff;
@@ -2197,6 +2209,10 @@ textarea:focus {
   overflow: hidden;
   border: none;
   padding: 0;
+}
+
+.discount-ticket--secondary {
+  background: linear-gradient(135deg, #2fbdff, #1da8ff);
 }
 
 .ticket-left {
@@ -3543,6 +3559,12 @@ footer {
   background: rgba(255, 255, 255, 0.8);
 }
 
+.event-row.is-dirty,
+.admin-event-form.is-dirty {
+  border-color: rgba(47, 107, 255, 0.35);
+  box-shadow: 0 10px 24px rgba(47, 107, 255, 0.08);
+}
+
 .event-row--dragging {
   opacity: 0.6;
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
@@ -3682,6 +3704,17 @@ footer {
 .event-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.event-dirty-label {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(47, 107, 255, 0.12);
+  color: var(--primary);
+  font-weight: 700;
 }
 
 .event-switch {

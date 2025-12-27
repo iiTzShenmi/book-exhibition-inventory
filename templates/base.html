@@ -77,31 +77,47 @@
                 <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
                 <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
               </div>
-            </form>
-            <div class="info-card info-card--compact discount-ticket">
-              <div class="ticket-left">
-                <div class="ticket-icon">🏷️</div>
-                <div class="ticket-main">
-                  <span class="promo-label">展場限定</span>
-                  <div class="promo-value">85<small>折</small></div>
-                  <span class="promo-sub">三本以上優惠</span>
+              <div class="mascot-container">
+                <div class="pixel-worker standing">
+                  <div class="sprite"></div>
+                </div>
+                <div class="mascot-bubble">
+                  Hi! I'm <strong>Exi</strong>.<br>
+                  EXIS keeps the floor calm and stocked.
                 </div>
               </div>
-              <div class="ticket-divider"></div>
-              <div class="ticket-right">
-                <p class="tiny-text">單本優惠 <strong>88折</strong></p>
-                <p class="tiny-text muted">*特價品除外</p>
-                <button type="button" class="btn-xs btn--outline">View Details</button>
+            </form>
+            <div class="discount-stack">
+              <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
+                <div class="ticket-left">
+                  <div class="ticket-icon">🎫</div>
+                  <div class="ticket-main">
+                    <span class="promo-label">展場限定</span>
+                    <div class="promo-value">85<small>折</small></div>
+                    <span class="promo-sub">三本以上優惠</span>
+                  </div>
+                </div>
+                <div class="ticket-divider"></div>
+                <div class="ticket-right">
+                  <p class="tiny-text">滿三本即可享有</p>
+                  <p class="tiny-text muted">*特價品除外</p>
+                </div>
               </div>
-            </div>
-          </div>
-          <div class="mascot-container">
-            <div class="pixel-worker standing">
-              <div class="sprite"></div>
-            </div>
-            <div class="mascot-bubble">
-              Hi! I'm <strong>Exi</strong>.<br>
-              EXIS keeps the floor calm and stocked.
+              <div class="info-card info-card--compact discount-ticket discount-ticket--secondary">
+                <div class="ticket-left">
+                  <div class="ticket-icon">💙</div>
+                  <div class="ticket-main">
+                    <span class="promo-label">單本優惠</span>
+                    <div class="promo-value">88<small>折</small></div>
+                    <span class="promo-sub">單本即可享有</span>
+                  </div>
+                </div>
+                <div class="ticket-divider"></div>
+                <div class="ticket-right">
+                  <p class="tiny-text">現場結帳立享</p>
+                  <p class="tiny-text muted">*特價品除外</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -225,6 +241,7 @@
                         <h2 class="event-title">活動時段</h2>
                         <div class="event-time">每日 14:00 / 17:00</div>
                         <p class="event-desc">作者快閃分享 • 現場 Q&A</p>
+                        <p class="event-hint">點擊封面查看狀態</p>
                         <ul class="event-meta">
                           <li>📍 舞台區域</li>
                           <li>🎁 現場小禮物</li>
@@ -285,12 +302,12 @@
           <div class="marquee-row scroll-right">
             <div class="marquee-track">
               {% for item in random_picks %}
-              <div class="book-card-mini">
+              <div class="book-card-mini" data-title="{{ item.title }}" data-source="random_pick">
                 <img src="{{ item.cover_url }}" alt="{{ item.title }}">
               </div>
               {% endfor %}
               {% for item in random_picks %}
-              <div class="book-card-mini">
+              <div class="book-card-mini" data-title="{{ item.title }}" data-source="random_pick">
                 <img src="{{ item.cover_url }}" alt="{{ item.title }}">
               </div>
               {% endfor %}

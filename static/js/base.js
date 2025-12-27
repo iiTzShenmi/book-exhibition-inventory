@@ -662,15 +662,13 @@
     }
 
     const books = Array.isArray(evt?.books) ? evt.books : [];
-    const cta = document.createElement('a');
-    cta.className = 'btn btn--primary';
-    cta.href = '#';
-    cta.textContent = books.length ? `查看 ${books.length} 本相關書籍` : '查看展場推薦';
-    cta.addEventListener('click', (event) => {
-      event.preventDefault();
-      openEventBooksModal(evt);
-    });
-    content.appendChild(cta);
+    if (books.length) {
+      const hint = document.createElement('p');
+      hint.className = 'event-hint';
+      hint.textContent = '點擊封面查看狀態';
+      content.appendChild(hint);
+    }
+    // No CTA button needed; book covers are clickable.
 
     banner.appendChild(content);
 
@@ -762,7 +760,17 @@
       const res = await fetch('/api/events', { cache: 'no-store' });
       const data = await res.json();
       const events = Array.isArray(data?.events) ? data.events : [];
-      if (!events.length) return;
+      if (!events.length) {
+        track.innerHTML = '';
+        track.appendChild(buildEventSlide({
+          title: '近期沒有活動',
+          time_text: '',
+          description: '目前沒有排程活動，請稍後再查看。',
+          books: [],
+        }));
+        setEventIndex(track, 0);
+        return;
+      }
       track.innerHTML = '';
       events.forEach((evt) => {
         track.appendChild(buildEventSlide(evt));
@@ -1140,6 +1148,14 @@
     resetAdminSearchForm();
     bindEscapeToCloseModals();
     document.addEventListener('click', handleNotificationTabs);
+    document.addEventListener('click', (event) => {
+      const card = event.target.closest('.book-card-mini[data-title]');
+      if (!card) return;
+      const title = card.dataset.title || '';
+      if (!title || typeof window.openBookModal !== 'function') return;
+      event.preventDefault();
+      window.openBookModal(title);
+    });
     setupScannerFocus();
     setupOfflineBanner();
     registerServiceWorker();

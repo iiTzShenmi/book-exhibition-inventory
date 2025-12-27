@@ -57,7 +57,11 @@
         <span class="switch-track"><span class="switch-thumb"></span></span>
         <span>啟用</span>
       </label>
-      <button class="btn btn--primary" type="submit">新增活動</button>
+      <div class="event-actions">
+        <span class="event-dirty-label is-hidden">未儲存</span>
+        <button class="btn btn--primary" type="submit">新增活動</button>
+        <button class="btn btn--secondary btn--sm event-discard is-hidden" type="button" data-discard-new>清空</button>
+      </div>
     </form>
   </div>
 
@@ -116,7 +120,9 @@
           <span>啟用</span>
         </label>
         <div class="event-actions">
+          <span class="event-dirty-label is-hidden">未儲存</span>
           <button class="btn btn--secondary btn--sm" type="submit">更新</button>
+          <button class="btn btn--secondary btn--sm event-discard is-hidden" type="button" data-discard>捨棄</button>
           <button class="btn btn--secondary btn--danger-outline btn--sm" type="submit" formaction="{{ url_for('admin.delete_event', event_id=event.id) }}">刪除</button>
         </div>
       </form>
@@ -184,6 +190,65 @@
         }
       });
     }
+
+    const serializeForm = (form) => {
+      const data = {};
+      form.querySelectorAll('input[name], textarea[name], select[name]').forEach((field) => {
+        if (field.type === 'checkbox') {
+          data[field.name] = field.checked;
+        } else {
+          data[field.name] = field.value;
+        }
+      });
+      return data;
+    };
+
+    const setInitialState = (form) => {
+      form.dataset.initial = JSON.stringify(serializeForm(form));
+      const picker = form.querySelector('.event-book-picker');
+      if (picker && picker._getSelected) {
+        form.dataset.initialBooks = JSON.stringify(picker._getSelected());
+      }
+    };
+
+    const isDirty = (form) => {
+      const initial = form.dataset.initial ? JSON.parse(form.dataset.initial) : {};
+      const current = serializeForm(form);
+      const keys = new Set([...Object.keys(initial), ...Object.keys(current)]);
+      for (const key of keys) {
+        if (String(initial[key] ?? '') !== String(current[key] ?? '')) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const updateDirtyState = (form) => {
+      const dirty = isDirty(form);
+      form.classList.toggle('is-dirty', dirty);
+      const label = form.querySelector('.event-dirty-label');
+      if (label) label.classList.toggle('is-hidden', !dirty);
+      const discard = form.querySelector('.event-discard');
+      if (discard) discard.classList.toggle('is-hidden', !dirty);
+    };
+
+    const restoreForm = (form) => {
+      const initial = form.dataset.initial ? JSON.parse(form.dataset.initial) : {};
+      form.querySelectorAll('input[name], textarea[name], select[name]').forEach((field) => {
+        if (!(field.name in initial)) return;
+        if (field.type === 'checkbox') {
+          field.checked = Boolean(initial[field.name]);
+        } else {
+          field.value = initial[field.name];
+        }
+      });
+      const picker = form.querySelector('.event-book-picker');
+      if (picker && picker._setSelected) {
+        const initialBooks = form.dataset.initialBooks ? JSON.parse(form.dataset.initialBooks) : [];
+        picker._setSelected(initialBooks);
+      }
+      updateDirtyState(form);
+    };
 
     const initBookPicker = (picker) => {
       const input = picker.querySelector('.book-picker-input');
@@ -275,9 +340,67 @@
       });
 
       syncHidden();
+      picker._getSelected = () => Array.from(selected.values()).map((item) => ({
+        id: item.id,
+        title: item.title,
+      }));
+      picker._setSelected = (books = []) => {
+        selected.clear();
+        tags.innerHTML = '';
+        books.forEach((book) => {
+          if (!book || !Number.isFinite(Number(book.id))) return;
+          selected.set(Number(book.id), { id: Number(book.id), title: book.title || '' });
+          const tag = document.createElement('span');
+          tag.className = 'book-tag';
+          tag.dataset.id = String(book.id);
+          tag.innerHTML = `${book.title || ''}<button type="button" class="tag-remove" aria-label="移除">×</button>`;
+          tags.appendChild(tag);
+        });
+        syncHidden();
+      };
     };
 
     document.querySelectorAll('.event-book-picker').forEach(initBookPicker);
+
+    const forms = Array.from(document.querySelectorAll('.admin-event-form, .event-row'));
+    forms.forEach((form) => {
+      setInitialState(form);
+      updateDirtyState(form);
+      form.addEventListener('input', () => updateDirtyState(form));
+      form.addEventListener('change', () => updateDirtyState(form));
+    });
+
+    document.addEventListener('click', (event) => {
+      const discardBtn = event.target.closest('[data-discard]');
+      if (discardBtn) {
+        const form = discardBtn.closest('.event-row');
+        if (form) restoreForm(form);
+        return;
+      }
+      const discardNew = event.target.closest('[data-discard-new]');
+      if (discardNew) {
+        const form = discardNew.closest('.admin-event-form');
+        if (form) restoreForm(form);
+      }
+    });
+
+    const hasDirtyForms = () => forms.some((form) => isDirty(form));
+
+    window.addEventListener('beforeunload', (event) => {
+      if (!hasDirtyForms()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+
+    document.addEventListener('click', (event) => {
+      const link = event.target.closest('a[href]');
+      if (!link) return;
+      const href = link.getAttribute('href') || '';
+      if (!href || href.startsWith('#') || link.target === '_blank') return;
+      if (hasDirtyForms() && !window.confirm('尚有未儲存的活動變更，確定要離開嗎？')) {
+        event.preventDefault();
+      }
+    });
   })();
 </script>
 {% endblock %}
