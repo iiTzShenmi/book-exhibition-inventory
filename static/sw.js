@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookexpo-offline-v3';
+const CACHE_NAME = 'bookexpo-offline-v4';
 const OFFLINE_ASSETS = [
   '/',
   '/static/css/main.css',
@@ -34,16 +34,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-first for static assets to keep them fresh.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((resp) => {
-          const copy = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          return resp;
-        })
-        .catch(() => caches.match('/'));
-    })
+    fetch(request)
+      .then((resp) => {
+        const copy = resp.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        return resp;
+      })
+      .catch(() => caches.match(request))
   );
 });

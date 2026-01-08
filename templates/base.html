@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ title or "書展庫存系統" }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css', v=config['STATIC_VERSION']) }}">
   {% block extra_css %}{% endblock %}
 </head>
 
@@ -69,22 +69,13 @@
           <p class="muted">輸入書名、作者或關鍵字，立即查詢展示櫃或備書櫃的庫存狀態。</p>
           <div class="hero__search-row">
             <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
-              <div class="search-box">
+              <div class="search-box search-box--intro">
                 <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
                 <button class="btn btn--primary" type="submit">搜尋</button>
               </div>
               <div class="hint-row">
                 <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
                 <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
-              </div>
-              <div class="mascot-container">
-                <div class="pixel-worker standing">
-                  <div class="sprite"></div>
-                </div>
-                <div class="mascot-bubble">
-                  Hi! I'm <strong>Exi</strong>.<br>
-                  EXIS keeps the floor calm and stocked.
-                </div>
               </div>
             </form>
             <div class="discount-stack">
@@ -330,10 +321,10 @@
                 <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/linepay.png') }}" alt="LINE Pay" loading="lazy">
               </span>
               <span class="payment-icon-wrap">
-                <img class="payment-icon" src="{{ url_for('static', filename='icons/街口.png') }}" alt="街口支付" loading="lazy">
+                <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/jkopay.png') }}" alt="街口支付" loading="lazy">
               </span>
               <span class="payment-icon-wrap">
-                <img class="payment-icon" src="{{ url_for('static', filename='icons/全支付.png') }}" alt="全支付" loading="lazy">
+                <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/pluspay.png') }}" alt="全支付" loading="lazy">
               </span>
             </div>
           </div>
@@ -361,7 +352,7 @@
     </footer>
   </div>
 
-  <script src="{{ url_for('static', filename='js/base.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/base.js', v=config['STATIC_VERSION']) }}" defer></script>
   <script>
     (() => {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
