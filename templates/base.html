@@ -67,6 +67,10 @@
               <span class="brand__eyebrow">EXIS v1.0</span>
               <span class="brand__title">展場庫存系統</span>
             </span>
+            <button type="button" class="hero-brand__action" id="hero-quick-guide" aria-label="現場快速導覽">
+              <span class="hero-brand__icon">🔍</span>
+              <span>現場快速導覽</span>
+            </button>
             <a class="hero-brand__home" href="{{ url_for('inventory.home') }}" aria-label="回到首頁">🏠</a>
           </p>
           <h1>EXIS 展場庫存系統</h1>
@@ -77,37 +81,31 @@
                 <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
                 <button class="btn btn--primary" type="submit">搜尋</button>
               </div>
-              {% if request.endpoint == 'inventory.home' %}
-              <div class="hint-row">
-                <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
-                <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
-              </div>
-              {% endif %}
             </form>
             {% if request.endpoint == 'inventory.home' %}
             <div class="discount-stack">
               <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
                 <div class="ticket-left">
-                  <div class="ticket-icon">🎫</div>
+                  <div class="ticket-icon">3+冊</div>
                   <div class="ticket-main">
-                    <span class="promo-label">展場限定</span>
+                    <span class="promo-label">多本優惠</span>
                     <div class="promo-value">85<small>折</small></div>
-                    <span class="promo-sub">三本以上優惠</span>
+                    <span class="promo-sub">買三本以上</span>
                   </div>
                 </div>
                 <div class="ticket-divider"></div>
                 <div class="ticket-right">
-                  <p class="tiny-text">滿三本即可享有</p>
+                  <p class="tiny-text">結帳立享折扣</p>
                   <p class="tiny-text muted">*特價品除外</p>
                 </div>
               </div>
               <div class="info-card info-card--compact discount-ticket discount-ticket--secondary">
                 <div class="ticket-left">
-                  <div class="ticket-icon">💙</div>
+                  <div class="ticket-icon">1本</div>
                   <div class="ticket-main">
                     <span class="promo-label">單本優惠</span>
                     <div class="promo-value">88<small>折</small></div>
-                    <span class="promo-sub">單本即可享有</span>
+                    <span class="promo-sub">買一本即可</span>
                   </div>
                 </div>
                 <div class="ticket-divider"></div>
@@ -308,13 +306,13 @@
             <div class="marquee-track">
               {% for item in top_sellers %}
               <div class="book-card-mini" data-title="{{ item.title }}" data-source="top_seller">
-                <img src="{{ item.cover }}" alt="{{ item.title }}">
+                <img src="{{ item.cover }}" alt="{{ item.title }}" {% if loop.first %}loading="eager" fetchpriority="high" sizes="(max-width: 720px) 140px, 200px"{% else %}loading="lazy"{% endif %}>
                 <div class="rank">#{{ loop.index }}</div>
               </div>
               {% endfor %}
               {% for item in top_sellers %}
               <div class="book-card-mini" data-title="{{ item.title }}" data-source="top_seller">
-                <img src="{{ item.cover }}" alt="{{ item.title }}">
+                <img src="{{ item.cover }}" alt="{{ item.title }}" loading="lazy">
                 <div class="rank">#{{ loop.index }}</div>
               </div>
               {% endfor %}
@@ -333,12 +331,12 @@
             <div class="marquee-track">
               {% for item in random_picks %}
               <div class="book-card-mini" data-title="{{ item.title }}" data-source="random_pick">
-                <img src="{{ item.cover_url }}" alt="{{ item.title }}">
+                <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
               </div>
               {% endfor %}
               {% for item in random_picks %}
               <div class="book-card-mini" data-title="{{ item.title }}" data-source="random_pick">
-                <img src="{{ item.cover_url }}" alt="{{ item.title }}">
+                <img src="{{ item.cover_url }}" alt="{{ item.title }}" loading="lazy">
               </div>
               {% endfor %}
             </div>
@@ -377,26 +375,63 @@
       {% endif %}
     </main>
 
-    <footer>
-      <div class="footer-inner">
+    <footer class="site-footer">
+      <div class="footer-content">
         <div class="footer-brand">
-          <p class="eyebrow">Powered by EXIS</p>
-          <strong>Real-time stock. Real-time peace of mind.</strong>
-          <span class="muted footer-meta">2025 • Built for speed.</span>
-        </div>
-        {% if request.blueprint != 'admin' %}
-        <div class="footer-links">
-          <div class="footer-links__col">
-            <h4>Company</h4>
-            <ul class="footer-link-list">
-              <li><a class="footer-link" href="{{ url_for('auth.login') }}">Staff Login</a></li>
-              {% if request.endpoint == 'inventory.home' %}
-              <li><button type="button" class="footer-link footer-link--button" id="about-btn">About Me</button></li>
-              {% endif %}
-            </ul>
+          <div class="brand-logo">
+            <span class="brand-mark">⚡</span>
+            <span class="brand-text">EXIS</span>
+          </div>
+          <p class="footer-desc">
+            The high-performance inventory system designed for modern book exhibitions.
+            Real-time tracking, zero latency.
+          </p>
+          <div class="footer-mascot">
+            <div class="pixel-worker sleeping" style="transform: scale(0.8); position: relative; left: 0;">
+              <div class="sprite"></div>
+              <div class="bubble" style="left: 20px;">System OK</div>
+            </div>
           </div>
         </div>
-        {% endif %}
+
+        <div class="footer-links">
+          <h4>Platform</h4>
+          <a href="{{ url_for('inventory.home') }}">Exhibition Home</a>
+          <a href="{{ url_for('api.search') }}">Book Search</a>
+          <a href="#">Live Events</a>
+          <a href="#">Floor Map</a>
+        </div>
+
+        <div class="footer-links">
+          <h4>Staff Access</h4>
+          {% if session.get('is_admin') %}
+            <a href="{{ url_for('admin.dashboard') }}" class="highlight-link">⚡ Admin Dashboard</a>
+            <a href="{{ url_for('admin.audit_logs') }}">Audit Logs</a>
+            <a href="{{ url_for('auth.logout') }}">Sign Out</a>
+          {% else %}
+            <a href="{{ url_for('auth.login') }}">Staff Login</a>
+            <a href="#">Volunteer Portal</a>
+          {% endif %}
+        </div>
+
+        <div class="footer-links">
+          <h4>About</h4>
+          <a href="#">Project Documentation</a>
+          <a href="#">Report an Issue</a>
+          <div class="dev-tag">
+            <span>Developed by</span>
+            <strong>Your Name / Team</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>&copy; 2025 EXIS Project. All rights reserved.</span>
+        <div class="footer-meta">
+          <span class="status-dot"></span> System Operational
+          <span class="divider">|</span>
+          <span>v1.2.0</span>
+        </div>
       </div>
     </footer>
   </div>

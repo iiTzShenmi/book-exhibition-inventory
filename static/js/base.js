@@ -191,6 +191,12 @@
   function closeAnnouncement() {
     const overlay = document.getElementById('announcement-overlay');
     if (overlay) overlay.style.display = 'none';
+    const searchBox = document.querySelector('.search-box--intro');
+    if (searchBox) {
+      searchBox.classList.remove('search-box--intro');
+      void searchBox.offsetWidth;
+      searchBox.classList.add('search-box--intro');
+    }
   }
 
   function openAboutModal() {
@@ -229,7 +235,7 @@
     const focusBtn = document.getElementById('hint-focus-search');
     const input = document.querySelector('.customer-search input[name="q"]');
     const mapOverlay = document.getElementById('booth-map-overlay');
-    const realtimeBtn = document.getElementById('hint-realtime');
+    const quickGuideBtn = document.getElementById('hero-quick-guide');
     const aboutBtn = document.getElementById('about-btn');
     if (focusBtn) {
       focusBtn.addEventListener('click', () => {
@@ -241,9 +247,20 @@
         }
       });
     }
+    const realtimeBtn = document.getElementById('hint-realtime');
     if (realtimeBtn) {
       realtimeBtn.addEventListener('click', () => {
         openRealtimeModal();
+      });
+    }
+    if (quickGuideBtn) {
+      quickGuideBtn.addEventListener('click', () => {
+        if (mapOverlay) {
+          openBoothMap();
+        } else if (input) {
+          input.focus();
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       });
     }
     loadEventsForHero();

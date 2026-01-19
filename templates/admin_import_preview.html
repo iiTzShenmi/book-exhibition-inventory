@@ -103,7 +103,7 @@
     <div class="import-warning-list">
       {% for row in warning_rows %}
       <label class="import-warning-item">
-        <input type="checkbox" class="warning-keep" data-cabinet="{{ row.cabinet }}" data-title="{{ row.title }}" data-normalized="{{ row.normalized }}">
+        <input type="checkbox" class="warning-keep" data-key="{{ row.key }}" data-cabinet="{{ row.cabinet }}" data-title="{{ row.title }}" data-normalized="{{ row.normalized }}">
         <div>
           <div class="import-warning-title">
             <span class="import-warning-cab">{{ row.cabinet }}</span>
@@ -146,8 +146,11 @@
 
             {% if row.is_new_cabinet %}
             <label class="warning-action">
-              <span class="muted">櫃位處理</span>
-              <select class="cabinet-override" data-key="{{ row.key }}">
+              <div class="warning-action__row">
+                <span class="muted">櫃位處理</span>
+                <button type="button" class="btn btn--ghost btn--sm apply-cabinet-all" data-cabinet="{{ row.cabinet }}">套用全部</button>
+              </div>
+              <select class="cabinet-override" data-key="{{ row.key }}" data-cabinet="{{ row.cabinet }}">
                 <option value="__new__" selected>保留並新增櫃位</option>
                 {% for cab in existing_cabinets %}
                 <option value="{{ cab }}">{{ cab }}</option>
@@ -179,7 +182,7 @@
         <span>提醒</span>
       </div>
       {% for row in preview_rows %}
-      <div class="import-table__row {% if row.warnings %}has-warning{% endif %}" data-normalized="{{ row.normalized }}" data-is-new="{{ 'true' if row.is_new_title else 'false' }}">
+      <div class="import-table__row {% if row.warnings %}has-warning{% endif %}" data-key="{{ row.key }}" data-cabinet="{{ row.cabinet }}" data-title="{{ row.title }}" data-normalized="{{ row.normalized }}" data-is-new="{{ 'true' if row.is_new_title else 'false' }}">
         <span class="import-cab">{{ row.cabinet }}</span>
         <span class="import-title">{{ row.title }}</span>
         <span class="import-normalized">{{ row.normalized }}</span>
@@ -272,6 +275,13 @@
     const titleOverridesInput = document.getElementById('title-overrides');
     const cabinetOverridesInput = document.getElementById('cabinet-overrides');
     let keptWarnings = warningChecks.filter((chk) => chk.checked).length;
+    const importRows = Array.from(document.querySelectorAll('.import-table__row'));
+    const importRowMap = new Map();
+    importRows.forEach((row) => {
+      if (row.dataset.key) {
+        importRowMap.set(row.dataset.key, row);
+      }
+    });
     if (!form) return;
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const toast = window.showToast || ((msg) => msg && window.alert(msg));
@@ -427,14 +437,17 @@
       const cabinetOverrides = {};
       keptWarnings = 0;
       warningChecks.forEach((chk) => {
+        const row = chk.dataset.key ? importRowMap.get(chk.dataset.key) : null;
         if (chk.checked) {
           keptWarnings += 1;
+          if (row) row.classList.remove('is-excluded');
         } else {
           excluded.push({
             cabinet: chk.dataset.cabinet || '',
             title: chk.dataset.title || '',
             normalized: chk.dataset.normalized || '',
           });
+          if (row) row.classList.add('is-excluded');
         }
       });
       document.querySelectorAll('.title-override').forEach((select) => {
@@ -475,6 +488,26 @@
       });
       document.querySelectorAll('.cabinet-override').forEach((select) => {
         select.addEventListener('change', updateWarningState);
+      });
+      const escapeValue = (value) => {
+        if (window.CSS && typeof window.CSS.escape === 'function') {
+          return window.CSS.escape(value);
+        }
+        return String(value).replace(/\"/g, '\\\\\"');
+      };
+      document.querySelectorAll('.apply-cabinet-all').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const cab = btn.dataset.cabinet || '';
+          const wrapper = btn.closest('.warning-action');
+          const select = wrapper?.querySelector('.cabinet-override');
+          if (!select) return;
+          const value = select.value;
+          const selector = `.cabinet-override[data-cabinet=\"${escapeValue(cab)}\"]`;
+          document.querySelectorAll(selector).forEach((other) => {
+            other.value = value;
+          });
+          updateWarningState();
+        });
       });
       document.querySelectorAll('.similar-choice').forEach((group) => {
         group.querySelectorAll('input').forEach((radio) => {

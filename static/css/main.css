@@ -208,8 +208,28 @@ a {
   font-weight: 700;
 }
 
-.hero-brand__home {
+.hero-brand__action {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(47, 107, 255, 0.24);
+  background: rgba(47, 107, 255, 0.1);
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.hero-brand__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-brand__home {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1699,14 +1719,18 @@ body:not(.is-admin) .info-hub {
 }
 
 .ticket-icon {
-  font-size: 2.5rem;
-  background: rgba(255, 255, 255, 0.2);
-  width: 60px;
-  height: 60px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.22);
+  width: 64px;
+  height: 64px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  text-align: center;
 }
 
 .promo-label {
@@ -1768,6 +1792,11 @@ body:not(.is-admin) .info-hub {
 .ticket-right .tiny-text {
   margin: 0 0 4px 0;
   font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.discount-ticket .muted {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .btn-xs {
@@ -2659,68 +2688,112 @@ body:not(.is-admin) .info-hub {
 }
 
 /* Footer */
-footer {
-  padding: 24px 5vw 40px;
-  color: var(--muted);
+.site-footer {
+  background-color: #1a1a1a;
+  color: #a0a0a0;
+  padding: 64px 20px 20px;
+  margin-top: auto;
+  font-size: 0.95rem;
+  border-top: 1px solid #333;
 }
 
-.footer-inner {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(229, 232, 239, 0.8);
-  padding: 14px 16px;
-  border-radius: var(--radius-lg);
+.footer-content {
+  max-width: 1200px;
+  margin: 0 auto 60px;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) auto;
-  gap: 32px;
-  align-items: start;
-  box-shadow: var(--shadow-soft);
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+  gap: 40px;
 }
 
-.footer-brand {
-  display: grid;
-  gap: 6px;
+.footer-brand .brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.5rem;
+  margin-bottom: 16px;
+}
+
+.brand-mark {
+  color: #ffd700;
+}
+
+.footer-desc {
+  line-height: 1.6;
+  max-width: 300px;
+  margin-bottom: 24px;
+}
+
+.footer-mascot {
+  height: 60px;
+  position: relative;
+}
+
+.footer-links h4 {
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+
+.footer-links a {
+  display: block;
+  color: #a0a0a0;
+  text-decoration: none;
+  margin-bottom: 12px;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.footer-links a:hover {
+  color: #fff;
+  transform: translateX(4px);
+}
+
+.highlight-link {
+  color: #4f8aff !important;
+  font-weight: 600;
+}
+
+.dev-tag {
+  margin-top: 20px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.dev-tag strong {
+  display: block;
+  color: #fff;
+}
+
+.footer-bottom {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-top: 20px;
+  border-top: 1px solid #333;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
 }
 
 .footer-meta {
-  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.footer-links {
-  display: grid;
-  gap: 24px;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background-color: #2ecc71;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(46, 204, 113, 0.4);
 }
 
-.footer-links__col h4 {
-  margin: 0 0 10px;
-  font-size: 0.75rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.footer-link-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.footer-link {
-  color: var(--text);
-  text-decoration: none;
-  font-weight: 600;
-  background: none;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-
-.footer-link:hover {
-  color: var(--primary);
-}
+.divider { color: #444; }
 
 
 .is-hidden {
@@ -2790,5 +2863,14 @@ footer {
   .header-actions .pill-link { white-space: nowrap; }
   .search-box { flex-direction: column; align-items: stretch; }
   .search-box button { width: 100%; }
-  .footer-inner { grid-template-columns: 1fr; gap: 12px; align-items: flex-start; }
+  .footer-content {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+
+  .footer-bottom {
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+  }
 }
