@@ -1,0 +1,501 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="admin-import-preview" data-can-commit="{{ '1' if can_commit else '0' }}" data-auto-fetch="{{ '1' if (missing_author_count > 0 or missing_cover_count > 0) and invalid_rows == 0 else '0' }}" data-warning-count="{{ warning_count }}">
+  <div class="section-head">
+    <p class="eyebrow">匯入預覽</p>
+    <div class="section-head__row">
+      <h2>📥 書單上傳檢查</h2>
+      <button type="button" id="notif-btn" class="notif-btn" title="系統通知">
+        🔔
+        <span id="notif-count" class="notif-count" style="display:none;">0</span>
+      </button>
+    </div>
+    <p class="muted">請先檢查警告與書名正規化結果，再進行匯入。</p>
+  </div>
+
+  <div class="card">
+    <div class="card__header">
+      <span class="chip chip--soft">匯入摘要</span>
+      <h3>檢查結果</h3>
+    </div>
+    <div class="import-summary">
+      <div class="import-stat">
+        <span class="import-stat__label">書籍筆數</span>
+        <strong>{{ total_rows }}</strong>
+      </div>
+      <div class="import-stat">
+        <span class="import-stat__label">新書名</span>
+        <strong>{{ new_titles }}</strong>
+      </div>
+      <div class="import-stat">
+        <span class="import-stat__label">既有書名</span>
+        <strong>{{ existing_titles_count }}</strong>
+      </div>
+      <div class="import-stat">
+        <span class="import-stat__label">新櫃位</span>
+        <strong>{{ cabinet_create_count }}</strong>
+      </div>
+      <div class="import-stat">
+        <span class="import-stat__label">格式錯誤列</span>
+        <strong class="{% if invalid_rows > 0 %}text-danger{% endif %}">{{ invalid_rows }}</strong>
+      </div>
+      <div class="import-stat">
+        <span class="import-stat__label">警告筆數</span>
+        <strong class="{% if warning_count > 0 %}text-danger{% endif %}">{{ warning_count }}</strong>
+      </div>
+    </div>
+    {% if has_more %}
+    <p class="muted">僅顯示前 200 筆，完整資料會在匯入時全部處理。</p>
+    {% endif %}
+    {% if invalid_rows > 0 %}
+    <p class="muted text-danger">有 {{ invalid_rows }} 列缺少櫃位或書名，請修正 CSV 後重新上傳。</p>
+    {% endif %}
+  </div>
+
+  <div class="card import-meta-card">
+    <div class="card__header">
+      <span class="chip chip--soft">作者/封面</span>
+      <h3>自動補全</h3>
+    </div>
+    <p class="muted">尚有 {{ missing_author_count }} 筆作者、{{ missing_cover_count }} 筆封面未取得。</p>
+    <p class="muted">待抓取 {{ safe_fetch_count }} 本（已排除警告書名）。</p>
+    <p class="muted">自動抓取會略過有警告的書名。</p>
+    <div class="import-meta-actions">
+      <button type="button" class="btn btn--secondary" id="import-meta-btn" data-token="{{ token }}" {% if missing_author_count == 0 and missing_cover_count == 0 %}disabled{% endif %}>
+        開始抓取
+      </button>
+      <span class="muted" id="import-meta-status"></span>
+    </div>
+    <div class="import-progress" id="import-meta-progress">
+      <div class="import-progress__bar"></div>
+    </div>
+    <div class="muted import-progress__text" id="import-meta-progress-text"></div>
+    {% if warning_count > 0 %}
+    <div class="import-warning-actions">
+      <a class="btn btn--secondary btn--sm" href="{{ url_for('admin.admin_import_warnings') }}">下載警告清單 CSV</a>
+      <span class="muted">共 {{ warning_items }} 項提醒</span>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if warning_count > 0 %}
+  <div class="card import-warning-card">
+    <div class="card__header">
+      <span class="chip chip--soft">警告處理</span>
+      <h3>逐筆決定保留或排除</h3>
+    </div>
+    <p class="muted">未勾選的警告會被排除；保留的警告需勾選「已確認」才可匯入。</p>
+    <div class="import-warning-guide">
+      <div class="muted">常見提醒範例：</div>
+      <ul class="import-warnings">
+        <li>CSV 內重複列：相同櫃位 + 書名出現多次（系統會自動合併）</li>
+        <li>書名格式不一致：例如「人類大命運」vs「人類大命運＿」</li>
+        <li>新櫃位（將新增）：CSV 裡的櫃位不在資料庫</li>
+        <li>相似書名：與現有書名接近，可能重複</li>
+      </ul>
+    </div>
+    <div class="import-warning-toolbar">
+      <button type="button" class="btn btn--secondary btn--sm" id="warning-exclude-all">全部移除</button>
+      <button type="button" class="btn btn--ghost btn--sm" id="warning-keep-all">全部保留</button>
+      <span class="muted">目前保留 <strong id="import-warning-keep-count">{{ warning_count }}</strong> 筆警告</span>
+    </div>
+    <div class="import-warning-list">
+      {% for row in warning_rows %}
+      <label class="import-warning-item">
+        <input type="checkbox" class="warning-keep" data-cabinet="{{ row.cabinet }}" data-title="{{ row.title }}" data-normalized="{{ row.normalized }}">
+        <div>
+          <div class="import-warning-title">
+            <span class="import-warning-cab">{{ row.cabinet }}</span>
+            <strong>{{ row.title }}</strong>
+          </div>
+          {% if row.warnings %}
+          <ul class="import-warnings">
+            {% for note in row.warnings %}
+            <li>{{ note }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          <div class="import-warning-actions-grid">
+            {% if row.variants %}
+            <label class="warning-action">
+              <span class="muted">書名格式選擇</span>
+              <select class="title-override" data-key="{{ row.key }}">
+                {% for variant in row.variants %}
+                <option value="{{ variant }}" {% if variant == row.title %}selected{% endif %}>{{ variant }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            {% endif %}
+
+            {% if row.similar_titles %}
+            <div class="warning-action similar-choice" data-key="{{ row.key }}">
+              <span class="muted">相似書名處理（注意差異）</span>
+              <label class="diff-option">
+                <input type="radio" name="similar-{{ row.key }}" value="" checked>
+                <span>CSV:</span> <strong class="text-primary">{{ row.title }}</strong>
+              </label>
+              {% for candidate in row.similar_titles %}
+              <label class="diff-option">
+                <input type="radio" name="similar-{{ row.key }}" value="{{ candidate }}">
+                <span>DB:</span> <strong class="text-dark">{{ candidate }}</strong>
+              </label>
+              {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if row.is_new_cabinet %}
+            <label class="warning-action">
+              <span class="muted">櫃位處理</span>
+              <select class="cabinet-override" data-key="{{ row.key }}">
+                <option value="__new__" selected>保留並新增櫃位</option>
+                {% for cab in existing_cabinets %}
+                <option value="{{ cab }}">{{ cab }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            {% endif %}
+          </div>
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card__header">
+      <span class="chip chip--soft">明細</span>
+      <h3>預覽清單</h3>
+    </div>
+    <div class="import-table">
+      <div class="import-table__head">
+        <span>櫃位</span>
+        <span>書名</span>
+        <span>正規化</span>
+        <span>作者</span>
+        <span>封面</span>
+        <span>庫存</span>
+        <span>提醒</span>
+      </div>
+      {% for row in preview_rows %}
+      <div class="import-table__row {% if row.warnings %}has-warning{% endif %}" data-normalized="{{ row.normalized }}" data-is-new="{{ 'true' if row.is_new_title else 'false' }}">
+        <span class="import-cab">{{ row.cabinet }}</span>
+        <span class="import-title">{{ row.title }}</span>
+        <span class="import-normalized">{{ row.normalized }}</span>
+        <span class="import-author">
+          {% if row.author %}
+            {{ row.author }}
+          {% else %}
+            <span class="muted">待抓取</span>
+          {% endif %}
+        </span>
+        <span class="import-cover">
+          {% if row.cover_url %}
+            <img src="{{ row.cover_url }}" alt="{{ row.title }}">
+          {% else %}
+            <span class="muted">待抓取</span>
+          {% endif %}
+        </span>
+        <span class="import-stock">{% if row.in_stock %}有庫存{% else %}缺貨{% endif %}</span>
+        <span class="import-notes">
+          {% if row.warnings %}
+          <ul class="import-warnings">
+            {% for note in row.warnings %}
+            <li>{{ note }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          -
+          {% endif %}
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card import-confirm-card">
+    <div class="card__header">
+      <span class="chip chip--soft">最後確認</span>
+      <h3>確認匯入</h3>
+    </div>
+    {% if can_commit %}
+    <form id="import-commit-form" class="import-confirm-form" method="post" action="{{ url_for('admin.admin_import') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <input type="hidden" name="excluded_warnings" id="excluded-warnings" value="[]">
+      <input type="hidden" name="title_overrides" id="title-overrides" value="{}">
+      <input type="hidden" name="cabinet_overrides" id="cabinet-overrides" value="{}">
+      <label class="event-field">
+        <span>再次輸入 IMPORT</span>
+        <input type="text" name="confirm_text" required placeholder="IMPORT">
+      </label>
+      <label class="event-field">
+        <span>管理員密碼</span>
+        <input type="password" name="password" required>
+      </label>
+      {% if warning_count > 0 %}
+      <label class="import-ack">
+        <input type="checkbox" id="import-ack" name="ack_warnings">
+        <span>我已確認保留的警告（<span id="import-warning-ack-count">{{ warning_count }}</span> 筆），仍要匯入</span>
+      </label>
+      {% endif %}
+      <div class="import-actions">
+        <button type="submit" class="btn btn--primary">確認匯入</button>
+        <a class="btn btn--secondary" href="{{ url_for('admin.system_page') }}">取消</a>
+      </div>
+    </form>
+    <div class="import-progress" id="import-commit-progress">
+      <div class="import-progress__bar"></div>
+    </div>
+    <div class="muted import-progress__text" id="import-commit-progress-text"></div>
+    {% else %}
+    <p class="muted text-danger">格式錯誤尚未修正，無法匯入。</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (() => {
+    const form = document.getElementById('import-commit-form');
+    const root = document.querySelector('.admin-import-preview');
+    const canCommit = root?.dataset.canCommit === '1';
+    const autoFetch = root?.dataset.autoFetch === '1';
+    const warningCount = Number(root?.dataset.warningCount || 0);
+    const ackBox = document.getElementById('import-ack');
+    const excludedInput = document.getElementById('excluded-warnings');
+    const warningKeepCountEl = document.getElementById('import-warning-keep-count');
+    const warningAckCountEl = document.getElementById('import-warning-ack-count');
+    const warningChecks = Array.from(document.querySelectorAll('.warning-keep'));
+    const titleOverridesInput = document.getElementById('title-overrides');
+    const cabinetOverridesInput = document.getElementById('cabinet-overrides');
+    let keptWarnings = warningChecks.filter((chk) => chk.checked).length;
+    if (!form) return;
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const toast = window.showToast || ((msg) => msg && window.alert(msg));
+
+    const commitProgress = document.getElementById('import-commit-progress');
+    const commitProgressText = document.getElementById('import-commit-progress-text');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      if (commitProgress) commitProgress.classList.add('is-running');
+      if (commitProgressText) commitProgressText.textContent = '匯入中...';
+      try {
+        const formData = new FormData(form);
+        const res = await fetch(form.action, {
+          method: 'POST',
+          headers: {
+            'X-CSRF-Token': csrf,
+          },
+          body: formData,
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          toast(data.message || '匯入失敗', false);
+          return;
+        }
+        toast(data.message || '匯入完成', true);
+        if (commitProgress) {
+          commitProgress.classList.remove('is-running');
+          const bar = commitProgress.querySelector('.import-progress__bar');
+          if (bar) bar.style.width = '100%';
+        }
+        if (commitProgressText) commitProgressText.textContent = '匯入完成';
+        window.location.href = '{{ url_for("admin.system_page") }}';
+      } catch (err) {
+        console.error(err);
+        toast('匯入失敗', false);
+      } finally {
+        if (commitProgress) commitProgress.classList.remove('is-running');
+        if (btn) btn.disabled = false;
+      }
+    });
+
+    const metaBtn = document.getElementById('import-meta-btn');
+    const metaStatus = document.getElementById('import-meta-status');
+    const metaProgress = document.getElementById('import-meta-progress');
+    const metaProgressText = document.getElementById('import-meta-progress-text');
+    const safeFetchCount = Number('{{ safe_fetch_count }}');
+    let metaRunning = false;
+    const updateConfirmState = () => {
+      if (!form) return;
+      const confirmBtn = form.querySelector('button[type="submit"]');
+      if (!confirmBtn) return;
+      const ackRequired = keptWarnings > 0;
+      const ackOk = !ackRequired || (ackBox && ackBox.checked);
+      confirmBtn.disabled = !canCommit || metaRunning || !ackOk;
+    };
+
+    const runMetaFetch = async () => {
+      if (!metaBtn || metaBtn.disabled) return;
+      metaBtn.disabled = true;
+      metaRunning = true;
+      updateConfirmState();
+
+      if (metaProgress) metaProgress.classList.add('is-running');
+      if (metaStatus) metaStatus.textContent = '準備抓取...';
+
+      const batchSize = 5;
+      const total = safeFetchCount || 0;
+      let processed = 0;
+      let successCount = 0;
+
+      try {
+        while (processed < total) {
+          if (metaProgressText) metaProgressText.textContent = `處理中... (${processed} / ${total})`;
+
+          const res = await fetch('{{ url_for("admin.admin_import_metadata", _external=False) }}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrf,
+            },
+            body: JSON.stringify({
+              token: metaBtn.dataset.token,
+              only_safe: true,
+              limit: batchSize,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            toast(data.message || '部分抓取失敗', false);
+            break;
+          }
+
+          const rows = new Map();
+          document.querySelectorAll('.import-table__row').forEach((row) => {
+            if (row.dataset.normalized) rows.set(row.dataset.normalized, row);
+          });
+
+          (data.items || []).forEach((item) => {
+            const row = rows.get(item.normalized);
+            if (!row) return;
+            const authorCell = row.querySelector('.import-author');
+            if (authorCell && item.author) {
+              authorCell.textContent = item.author;
+              authorCell.classList.add('text-success');
+            }
+            const coverCell = row.querySelector('.import-cover');
+            if (coverCell && item.cover_url) {
+              coverCell.innerHTML = `<img src="${item.cover_url}" alt="" class="fade-in">`;
+            }
+          });
+
+          const batchCount = (data.updated || 0) + (data.failed || 0);
+          if (batchCount === 0) break;
+
+          processed += batchCount;
+          successCount += data.updated || 0;
+
+          if (metaProgress) {
+            const bar = metaProgress.querySelector('.import-progress__bar');
+            const percent = total ? Math.min(100, Math.round((processed / total) * 100)) : 100;
+            if (bar) bar.style.width = `${percent}%`;
+          }
+        }
+
+        toast(`抓取完成！更新了 ${successCount} 本書籍`, true);
+      } catch (err) {
+        console.error(err);
+        toast('抓取過程發生錯誤', false);
+      } finally {
+        metaBtn.disabled = false;
+        if (metaProgress) metaProgress.classList.remove('is-running');
+        if (metaStatus) metaStatus.textContent = '抓取結束';
+        if (metaProgressText) metaProgressText.textContent = `完成 ${successCount} / ${total}`;
+        metaRunning = false;
+        updateConfirmState();
+      }
+    };
+
+    if (metaBtn) {
+      metaBtn.addEventListener('click', runMetaFetch);
+      if (autoFetch && !metaBtn.disabled) {
+        runMetaFetch();
+      }
+    }
+
+    const updateWarningState = () => {
+      if (!warningChecks.length) return;
+      const excluded = [];
+      const titleOverrides = {};
+      const cabinetOverrides = {};
+      keptWarnings = 0;
+      warningChecks.forEach((chk) => {
+        if (chk.checked) {
+          keptWarnings += 1;
+        } else {
+          excluded.push({
+            cabinet: chk.dataset.cabinet || '',
+            title: chk.dataset.title || '',
+            normalized: chk.dataset.normalized || '',
+          });
+        }
+      });
+      document.querySelectorAll('.title-override').forEach((select) => {
+        const key = select.dataset.key;
+        if (key && select.value) {
+          titleOverrides[key] = select.value;
+        }
+      });
+      document.querySelectorAll('.similar-choice').forEach((group) => {
+        const key = group.dataset.key;
+        const chosen = group.querySelector('input:checked');
+        if (key && chosen && chosen.value) {
+          titleOverrides[key] = chosen.value;
+        }
+      });
+      document.querySelectorAll('.cabinet-override').forEach((select) => {
+        const key = select.dataset.key;
+        if (key && select.value && select.value !== '__new__') {
+          cabinetOverrides[key] = select.value;
+        }
+      });
+      if (warningKeepCountEl) warningKeepCountEl.textContent = String(keptWarnings);
+      if (warningAckCountEl) warningAckCountEl.textContent = String(keptWarnings);
+      if (excludedInput) excludedInput.value = JSON.stringify(excluded);
+      if (titleOverridesInput) titleOverridesInput.value = JSON.stringify(titleOverrides);
+      if (cabinetOverridesInput) cabinetOverridesInput.value = JSON.stringify(cabinetOverrides);
+      if (ackBox) {
+        ackBox.disabled = keptWarnings === 0;
+        if (keptWarnings === 0) ackBox.checked = false;
+      }
+      updateConfirmState();
+    };
+
+    if (warningChecks.length) {
+      warningChecks.forEach((chk) => chk.addEventListener('change', updateWarningState));
+      document.querySelectorAll('.title-override').forEach((select) => {
+        select.addEventListener('change', updateWarningState);
+      });
+      document.querySelectorAll('.cabinet-override').forEach((select) => {
+        select.addEventListener('change', updateWarningState);
+      });
+      document.querySelectorAll('.similar-choice').forEach((group) => {
+        group.querySelectorAll('input').forEach((radio) => {
+          radio.addEventListener('change', updateWarningState);
+        });
+      });
+      document.getElementById('warning-exclude-all')?.addEventListener('click', () => {
+        warningChecks.forEach((chk) => { chk.checked = false; });
+        updateWarningState();
+      });
+      document.getElementById('warning-keep-all')?.addEventListener('click', () => {
+        warningChecks.forEach((chk) => { chk.checked = true; });
+        updateWarningState();
+      });
+      updateWarningState();
+    }
+
+    if (ackBox) {
+      ackBox.addEventListener('change', updateConfirmState);
+    }
+    updateConfirmState();
+  })();
+</script>
+{% endblock %}

@@ -7,6 +7,9 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ title or "書展庫存系統" }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css', v=config['STATIC_VERSION']) }}">
+  {% if request.blueprint == 'admin' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=config['STATIC_VERSION']) }}">
+  {% endif %}
   {% block extra_css %}{% endblock %}
 </head>
 
@@ -64,20 +67,24 @@
               <span class="brand__eyebrow">EXIS v1.0</span>
               <span class="brand__title">展場庫存系統</span>
             </span>
+            <a class="hero-brand__home" href="{{ url_for('inventory.home') }}" aria-label="回到首頁">🏠</a>
           </p>
           <h1>EXIS 展場庫存系統</h1>
           <p class="muted">輸入書名、作者或關鍵字，立即查詢展示櫃或備書櫃的庫存狀態。</p>
           <div class="hero__search-row">
             <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
-              <div class="search-box search-box--intro">
+              <div class="search-box{% if request.endpoint == 'inventory.home' %} search-box--intro{% endif %}">
                 <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
                 <button class="btn btn--primary" type="submit">搜尋</button>
               </div>
+              {% if request.endpoint == 'inventory.home' %}
               <div class="hint-row">
                 <button type="button" class="chip chip--action" id="hint-focus-search">🔍 現場快速導覽</button>
                 <button type="button" class="chip chip--action" id="hint-realtime">⚡ 即時庫存</button>
               </div>
+              {% endif %}
             </form>
+            {% if request.endpoint == 'inventory.home' %}
             <div class="discount-stack">
               <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
                 <div class="ticket-left">
@@ -110,6 +117,7 @@
                 </div>
               </div>
             </div>
+            {% endif %}
           </div>
         </div>
       </section>
@@ -181,6 +189,37 @@
       <div id="book-modal-overlay" class="modal-overlay" style="display:none;">
         <div id="book-modal-box" class="modal-box medium"></div>
       </div>
+
+      {% if request.endpoint == 'inventory.home' %}
+      <div id="announcement-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box medium announcement-modal">
+          <button type="button" class="modal-close" data-close-announcement>&times;</button>
+          <div class="modal-header">
+            <p class="eyebrow">使用提醒</p>
+            <h2>📌 查詢須知</h2>
+          </div>
+          <ul class="announcement-list">
+            <li>此頁面僅供<strong class="announcement-em">查詢</strong>使用，<strong class="announcement-em">無購買</strong>功能。</li>
+            <li>資料可能有誤差，請以<strong class="announcement-em">現場庫存</strong>為準。</li>
+          </ul>
+          <div class="announcement-sign">— iiTzShenmi</div>
+        </div>
+      </div>
+      {% endif %}
+
+      <div id="about-overlay" class="modal-overlay" style="display:none;">
+        <div class="modal-box small about-modal">
+          <button type="button" class="modal-close" data-close-about>&times;</button>
+          <div class="modal-header">
+            <p class="eyebrow">關於作者</p>
+            <h2>👋 關於我</h2>
+          </div>
+          <div class="about-body">
+            <p>您好，我是 iiTzShenmi，這是我為書展現場打造的 EXIS 系統。</p>
+            <p class="muted">若有建議或錯誤回報，歡迎現場告知。</p>
+          </div>
+        </div>
+      </div>
       {% endif %}
       
       {% if request.blueprint == 'admin' %}
@@ -215,10 +254,10 @@
       <section class="content-section">
       {% endif %}
           {% block content %}{% endblock %}
-          {% if request.blueprint != 'admin' and request.endpoint in ['inventory.home', 'api.search'] %}
-          <section class="info-hub">
-            <div class="section-head">
-              <p class="eyebrow">Highlights</p>
+      {% if request.blueprint != 'admin' and request.endpoint == 'inventory.home' %}
+      <section class="info-hub">
+        <div class="section-head">
+          <p class="eyebrow">Highlights</p>
               <h1>🧭 展場資訊</h1>
             </div>
 
@@ -340,13 +379,23 @@
 
     <footer>
       <div class="footer-inner">
-        <div>
+        <div class="footer-brand">
           <p class="eyebrow">Powered by EXIS</p>
           <strong>Real-time stock. Real-time peace of mind.</strong>
+          <span class="muted footer-meta">2025 • Built for speed.</span>
         </div>
-        <span class="muted">2025 • Built for speed.</span>
         {% if request.blueprint != 'admin' %}
-        <a class="pill-link footer-admin" href="{{ url_for('auth.login') }}">Staff Login</a>
+        <div class="footer-links">
+          <div class="footer-links__col">
+            <h4>Company</h4>
+            <ul class="footer-link-list">
+              <li><a class="footer-link" href="{{ url_for('auth.login') }}">Staff Login</a></li>
+              {% if request.endpoint == 'inventory.home' %}
+              <li><button type="button" class="footer-link footer-link--button" id="about-btn">About Me</button></li>
+              {% endif %}
+            </ul>
+          </div>
+        </div>
         {% endif %}
       </div>
     </footer>

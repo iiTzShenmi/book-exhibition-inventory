@@ -158,7 +158,7 @@
       }).catch(() => {});
     };
 
-    // Auto-focus: prioritize suggestions when no results, otherwise first result card
+    // Auto-focus + scroll: prioritize suggestions when no results, otherwise first result card
     window.requestAnimationFrame(() => {
       // Check if there are exact results
       const hasExactResults = document.querySelector('.results-grid:not(.suggestion-grid) .result-card');
@@ -169,7 +169,7 @@
       if (!hasExactResults && firstSuggestionCard) {
         // Scroll to suggestion section
         if (suggestionSection) {
-          suggestionSection.focus?.({ preventScroll: true });
+          suggestionSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
         // Focus first suggestion card
         firstSuggestionCard.setAttribute('tabindex', '-1');
@@ -182,7 +182,7 @@
         if (firstCard) {
           firstCard.setAttribute('tabindex', '-1');
           firstCard.focus({ preventScroll: true });
-          // Avoid auto-scrolling the page; just focus for accessibility.
+          firstCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
       } else {
         // No results and no suggestions, focus search input

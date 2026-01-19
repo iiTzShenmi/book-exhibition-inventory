@@ -18,7 +18,7 @@ if ROOT_DIR not in sys.path:
 
 from tools import env_loader  # loads .env into os.environ
 
-from app import app, db, generate_invite_code
+from app import app, db, generate_invite_code, ensure_admin_email_column
 from database.models import AdminInvite
 
 
@@ -49,6 +49,11 @@ def main():
     p = argparse.ArgumentParser(description="Create an admin invite code")
     p.add_argument("--memo", help="note for who/why this code is issued")
     p.add_argument(
+        "--role",
+        default="admin",
+        help="role for the invite (default: admin, e.g. advance-admin)",
+    )
+    p.add_argument(
         "--sqlite-ok",
         action="store_true",
         help="Allow writing to the default SQLite DB if DATABASE_URL is not set.",
@@ -66,8 +71,9 @@ def main():
     with app.app_context():
         print("[step] ensuring tables exist...")
         db.create_all()
+        ensure_admin_email_column()
         print("[step] inserting invite into DB...")
-        invite = AdminInvite(code=code, memo=args.memo)
+        invite = AdminInvite(code=code, memo=args.memo, role=args.role)
         db.session.add(invite)
         db.session.commit()
         total = AdminInvite.query.count()

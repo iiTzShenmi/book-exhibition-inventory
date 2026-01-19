@@ -29,5 +29,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/admin_backup.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/admin_backup.js', v=config['STATIC_VERSION']) }}" defer></script>
 {% endblock %}

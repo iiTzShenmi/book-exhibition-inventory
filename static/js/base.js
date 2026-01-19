@@ -183,12 +183,54 @@
   window.openNotif = openNotif;
   window.closeNotif = closeNotif;
 
+  function openAnnouncement() {
+    const overlay = document.getElementById('announcement-overlay');
+    if (overlay) overlay.style.display = 'flex';
+  }
+
+  function closeAnnouncement() {
+    const overlay = document.getElementById('announcement-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  function openAboutModal() {
+    const overlay = document.getElementById('about-overlay');
+    if (overlay) overlay.style.display = 'flex';
+  }
+
+  function closeAboutModal() {
+    const overlay = document.getElementById('about-overlay');
+    if (overlay) overlay.style.display = 'none';
+  }
+
+  document.addEventListener('click', (event) => {
+    const closeBtn = event.target.closest('[data-close-announcement]');
+    if (closeBtn) {
+      closeAnnouncement();
+      return;
+    }
+    const closeAbout = event.target.closest('[data-close-about]');
+    if (closeAbout) {
+      closeAboutModal();
+      return;
+    }
+    const overlay = document.getElementById('announcement-overlay');
+    if (overlay && event.target === overlay) {
+      closeAnnouncement();
+    }
+    const aboutOverlay = document.getElementById('about-overlay');
+    if (aboutOverlay && event.target === aboutOverlay) {
+      closeAboutModal();
+    }
+  });
+
   // Home page hint actions
   document.addEventListener('DOMContentLoaded', () => {
     const focusBtn = document.getElementById('hint-focus-search');
     const input = document.querySelector('.customer-search input[name="q"]');
     const mapOverlay = document.getElementById('booth-map-overlay');
     const realtimeBtn = document.getElementById('hint-realtime');
+    const aboutBtn = document.getElementById('about-btn');
     if (focusBtn) {
       focusBtn.addEventListener('click', () => {
         if (mapOverlay) {
@@ -205,6 +247,12 @@
       });
     }
     loadEventsForHero();
+    if (document.getElementById('announcement-overlay')) {
+      openAnnouncement();
+    }
+    if (aboutBtn) {
+      aboutBtn.addEventListener('click', openAboutModal);
+    }
   });
 
   let boothMapLoaded = false;
@@ -902,6 +950,8 @@
         'modal-overlay',
         'event-books-overlay',
         'book-modal-overlay',
+        'announcement-overlay',
+        'about-overlay',
         'cabinet-modal-overlay',
         'cabinet-manager-overlay',
         'cabinet-books-overlay',

@@ -198,7 +198,7 @@ def book_details(title):
         books,
         include_id=is_admin,
         reference_books=books,
-        include_reserve=True,
+        include_reserve=is_admin,
         include_reserve_out_of_stock=is_admin,
         include_cabinet_id=is_admin,
     )

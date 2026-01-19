@@ -35,6 +35,30 @@
         {% endif %}
       </div>
     </div>
+
+    <div class="card admin-upload-card">
+      <div class="card__header">
+        <span class="chip chip--soft">匯入</span>
+        <h3>上傳書單</h3>
+      </div>
+      <p class="muted">CSV / Excel 欄位順序：櫃位, 書名（庫存預設為 TRUE；作者/封面由系統自動搜尋）</p>
+      {% if can_upload %}
+      <div class="upload-format">
+        <p class="muted">範例格式（第一行可為標題，Excel 請另存成 UTF-8 CSV）：</p>
+        <pre class="upload-sample">Cabinet,Title
+名人推薦 1,思考的技術
+備書(社文),系統設計</pre>
+      </div>
+      <form id="csv-upload-form" class="upload-form" enctype="multipart/form-data" action="{{ url_for('admin.admin_import_preview') }}" method="post">
+        <input type="file" name="csv_file" accept=".csv" required>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit" class="btn btn--primary">上傳並預覽</button>
+      </form>
+      <p class="muted upload-hint">上傳後會進入預覽頁，確認無誤才會真正匯入。</p>
+      {% else %}
+      <p class="muted">此帳號沒有匯入權限。</p>
+      {% endif %}
+    </div>
   </div>
 
   <div class="card">
@@ -74,5 +98,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/admin_backup.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/admin_backup.js', v=config['STATIC_VERSION']) }}" defer></script>
 {% endblock %}

@@ -70,11 +70,12 @@ def register():
             if not invite:
                 error = "安全碼無效或已使用，請向網站擁有者確認"
             else:
+                role = invite.role or "admin"
                 user = AdminUser(
                     username=username,
                     email=email,
                     password_hash=generate_password_hash(password),
-                    role="admin",
+                    role=role,
                 )
                 db.session.add(user)
                 invite.used_at = datetime.utcnow()

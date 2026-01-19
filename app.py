@@ -49,6 +49,8 @@ DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 app = Flask(__name__)
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+app.config["STATIC_VERSION"] = os.environ.get("STATIC_VERSION") or datetime.utcnow().strftime("%Y%m%d%H%M%S")
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or f"sqlite:///{DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
@@ -117,30 +119,43 @@ def parse_qty(value):
         return 0
 
 
-def sync_csv_to_db():
+def sync_csv_to_db(
+    csv_text: str | None = None,
+    csv_path: str | None = None,
+    force: bool = False,
+    remove_missing: bool = True,
+):
     """Import or update the database from CSV (one-way).
 
     CSV columns supported:
     - cabinet_name, title, qty_or_bool, author (optional)
     """
+    summary = {
+        "rows": 0,
+        "pairs": 0,
+        "created_inventory": 0,
+        "archived_inventory": 0,
+    }
     # Skip when running against remote DB unless explicitly enabled
     # Check ENABLE_CSV_SYNC - treat "1", "true", "yes" as enabled
     enable_sync = os.environ.get("ENABLE_CSV_SYNC", "").strip().lower()
-    if is_postgres() and enable_sync not in ("1", "true", "yes"):
+    if is_postgres() and enable_sync not in ("1", "true", "yes") and not force:
         print("[sync_csv_to_db] skipped (remote DB detected; set ENABLE_CSV_SYNC=1 to allow)")
-        return
+        return summary
     
     # Skip if SKIP_INIT is set and database already has data
     skip_init = os.environ.get("SKIP_INIT", "").strip().lower()
-    if skip_init and skip_init not in ("0", "false", "no"):
+    if skip_init and skip_init not in ("0", "false", "no") and not force:
         # Check if database already has data
         if Inventory.query.first() is not None:
             print("[sync_csv_to_db] skipped (SKIP_INIT set and DB has data)")
-            return
+            return summary
     
-    if not os.path.exists(CSV_PATH):
-        print(f"[sync_csv_to_db] CSV not found: {CSV_PATH}")
-        return
+    if csv_text is None:
+        csv_path = csv_path or CSV_PATH
+        if not os.path.exists(csv_path):
+            print(f"[sync_csv_to_db] CSV not found: {csv_path}")
+            return summary
     
     # Ensure quantity columns are removed before syncing (migration)
     # This is needed even when SKIP_INIT is set
@@ -151,22 +166,48 @@ def sync_csv_to_db():
         return re.sub(r"\s+", " ", (raw or "").strip())
 
     aggregates = Counter()  # (cabinet_name, title) -> qty
+    explicit_qty_flags = {}
     authors = {}
     csv_titles = set()
 
-    with open(CSV_PATH, "r", encoding="utf-8") as f:
+    def is_header(row):
+        if len(row) < 2:
+            return False
+        first = row[0].strip().lstrip("\ufeff").lower()
+        second = row[1].strip().lower()
+        return first in {"cabinet", "cabinet_name"} and second in {"title", "book", "book_title"}
+
+    if csv_text is None:
+        csv_source = open(csv_path, "r", encoding="utf-8")
+    else:
+        csv_source = io.StringIO(csv_text)
+
+    with csv_source as f:
         reader = csv.reader(f)
         for row in reader:
-            if len(row) < 3:
+            if len(row) < 2:
                 continue
-            cab_name, title, qty_str, *rest = row
+            if is_header(row):
+                continue
+            cab_name, title, *rest = row
+            qty_raw = rest[0] if len(rest) >= 1 else None
+            rest = rest[1:] if len(rest) >= 2 else []
+            cab_name = cab_name.lstrip("\ufeff")
+            title = title.lstrip("\ufeff")
+            summary["rows"] += 1
             csv_titles.add(normalize_title(title))
             author = (rest[0].strip() if rest else "") or None
-            qty = parse_qty(qty_str)
+            qty_raw_str = "" if qty_raw is None else str(qty_raw).strip()
+            has_explicit_qty = qty_raw_str != ""
+            qty = parse_qty(qty_raw) if has_explicit_qty else 1
             key = (cab_name.strip(), title.strip())
             aggregates[key] += qty
+            if has_explicit_qty:
+                explicit_qty_flags[key] = True
             if author and title not in authors:
                 authors[title] = author
+
+    summary["pairs"] = len(aggregates)
 
     seen_pairs = set()
     for (cab_name, title), qty in aggregates.items():
@@ -200,56 +241,67 @@ def sync_csv_to_db():
                 cabinet_id=cabinet.id,
             )
             db.session.add(inventory)
-        inventory.in_stock = qty > 0
+            summary["created_inventory"] += 1
+        if inventory.status != "active":
+            inventory.status = "active"
+            inventory.deleted_at = None
+        if explicit_qty_flags.get((cab_name, title)):
+            inventory.in_stock = qty > 0
+        elif inventory.id is None:
+            inventory.in_stock = True
 
-    # Remove inventory rows no longer present (optimized: only query needed columns)
-    # Use a more efficient query that only fetches what we need
-    existing_inventory = db.session.query(
-        Inventory.id,
-        Inventory.cabinet_id,
-        Inventory.title_id,
-        Cabinet.name.label('cabinet_name'),
-        BookTitle.title.label('book_title')
-    ).join(Cabinet).join(BookTitle).filter(Inventory.status == "active").all()
-    
-    for item in existing_inventory:
-        pair = (item.cabinet_name or "", item.book_title or "")
-        if pair not in seen_pairs:
-            inv = Inventory.query.get(item.id)
-            if inv:
-                inv.status = "archived"
-                inv.deleted_at = datetime.utcnow()
-                inv.in_stock = False
+    if remove_missing:
+        # Remove inventory rows no longer present (optimized: only query needed columns)
+        # Use a more efficient query that only fetches what we need
+        existing_inventory = db.session.query(
+            Inventory.id,
+            Inventory.cabinet_id,
+            Inventory.title_id,
+            Cabinet.name.label('cabinet_name'),
+            BookTitle.title.label('book_title')
+        ).join(Cabinet).join(BookTitle).filter(Inventory.status == "active").all()
+        
+        for item in existing_inventory:
+            pair = (item.cabinet_name or "", item.book_title or "")
+            if pair not in seen_pairs:
+                inv = Inventory.query.get(item.id)
+                if inv:
+                    inv.status = "archived"
+                    inv.deleted_at = datetime.utcnow()
+                    inv.in_stock = False
+                    summary["archived_inventory"] += 1
 
     db.session.commit()
     print("[sync_csv_to_db] CSV -> DB sync complete.")
+    return summary
 
-    # Report DB titles not present in CSV (potential renames/duplicates)
-    # Optimized: only check titles that have inventory entries
-    if csv_titles:
-        missing_titles = []
-        # Only query titles that are actually in inventory
-        titles_with_inventory = (
-            db.session.query(BookTitle)
-            .join(Inventory)
-            .filter(Inventory.status == "active")
-            .distinct()
-            .all()
-        )
-        for title_obj in titles_with_inventory:
-            norm = normalize_title(title_obj.title)
-            if norm and norm not in csv_titles:
-                count = Inventory.query.filter_by(title_id=title_obj.id, status="active").count()
-                missing_titles.append((title_obj.title, count))
-        if missing_titles:
-            logs_dir = os.path.join(DATA_DIR, "logs")
-            os.makedirs(logs_dir, exist_ok=True)
-            log_path = os.path.join(logs_dir, "book_csv_missing.txt")
-            with open(log_path, "w", encoding="utf-8") as f:
-                for title, count in missing_titles:
-                    f.write(f"{title}\tinventory_count={count}\n")
-            print(f"[sync_csv_to_db] Titles present in DB but missing in CSV: {len(missing_titles)}")
-            print(f"[sync_csv_to_db] See details in {log_path}")
+    if remove_missing:
+        # Report DB titles not present in CSV (potential renames/duplicates)
+        # Optimized: only check titles that have inventory entries
+        if csv_titles:
+            missing_titles = []
+            # Only query titles that are actually in inventory
+            titles_with_inventory = (
+                db.session.query(BookTitle)
+                .join(Inventory)
+                .filter(Inventory.status == "active")
+                .distinct()
+                .all()
+            )
+            for title_obj in titles_with_inventory:
+                norm = normalize_title(title_obj.title)
+                if norm and norm not in csv_titles:
+                    count = Inventory.query.filter_by(title_id=title_obj.id, status="active").count()
+                    missing_titles.append((title_obj.title, count))
+            if missing_titles:
+                logs_dir = os.path.join(DATA_DIR, "logs")
+                os.makedirs(logs_dir, exist_ok=True)
+                log_path = os.path.join(logs_dir, "book_csv_missing.txt")
+                with open(log_path, "w", encoding="utf-8") as f:
+                    for title, count in missing_titles:
+                        f.write(f"{title}\tinventory_count={count}\n")
+                print(f"[sync_csv_to_db] Titles present in DB but missing in CSV: {len(missing_titles)}")
+                print(f"[sync_csv_to_db] See details in {log_path}")
 
 
 def export_db_to_csv():
@@ -688,6 +740,12 @@ def ensure_admin_email_column():
             conn.commit()
     if "admin_invite" not in inspector.get_table_names():
         AdminInvite.__table__.create(db.engine)
+    else:
+        invite_cols = [col["name"] for col in inspector.get_columns("admin_invite")]
+        if "role" not in invite_cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE admin_invite ADD COLUMN role VARCHAR(50)"))
+                conn.commit()
     if "view_event" not in inspector.get_table_names():
         ViewEvent.__table__.create(db.engine)
     if "top_seller_snapshot" not in inspector.get_table_names():
@@ -1286,6 +1344,18 @@ def csrf_protect():
                 }), 400
             return jsonify({"success": False, "message": "Invalid or missing CSRF token."}), 400
         abort(400, description="Invalid or missing CSRF token.")
+
+
+@app.after_request
+def disable_html_caching(response):
+    """Ensure HTML reflects the latest deploy on refresh."""
+    if request.endpoint and request.endpoint.startswith("static"):
+        return response
+    if response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 @app.context_processor
