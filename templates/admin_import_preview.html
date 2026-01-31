@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<section class="admin-import-preview" data-can-commit="{{ '1' if can_commit else '0' }}" data-auto-fetch="{{ '1' if (missing_author_count > 0 or missing_cover_count > 0) and invalid_rows == 0 else '0' }}" data-warning-count="{{ warning_count }}">
+<section class="admin-import-preview" data-can-commit="{{ '1' if can_commit else '0' }}" data-auto-fetch="{{ '1' if (missing_author_count > 0 or missing_cover_count > 0) and invalid_rows == 0 else '0' }}" data-warning-count="{{ warning_count }}" data-total-rows="{{ total_rows }}">
   <div class="section-head">
     <p class="eyebrow">匯入預覽</p>
     <div class="section-head__row">
@@ -267,6 +267,7 @@
     const canCommit = root?.dataset.canCommit === '1';
     const autoFetch = root?.dataset.autoFetch === '1';
     const warningCount = Number(root?.dataset.warningCount || 0);
+    const totalRows = Number(root?.dataset.totalRows || 0);
     const ackBox = document.getElementById('import-ack');
     const excludedInput = document.getElementById('excluded-warnings');
     const warningKeepCountEl = document.getElementById('import-warning-keep-count');
@@ -275,6 +276,7 @@
     const titleOverridesInput = document.getElementById('title-overrides');
     const cabinetOverridesInput = document.getElementById('cabinet-overrides');
     let keptWarnings = warningChecks.filter((chk) => chk.checked).length;
+    let excludedCount = 0;
     const importRows = Array.from(document.querySelectorAll('.import-table__row'));
     const importRowMap = new Map();
     importRows.forEach((row) => {
@@ -293,8 +295,15 @@
       event.preventDefault();
       const btn = form.querySelector('button[type="submit"]');
       if (btn) btn.disabled = true;
+      const importTotal = Math.max(0, (totalRows || importRows.length) - excludedCount);
       if (commitProgress) commitProgress.classList.add('is-running');
-      if (commitProgressText) commitProgressText.textContent = '匯入中...';
+      if (commitProgressText) {
+        commitProgressText.textContent = `匯入中...（剩餘 ${importTotal} 本）`;
+      }
+      if (commitProgress) {
+        const bar = commitProgress.querySelector('.import-progress__bar');
+        if (bar) bar.style.width = '12%';
+      }
       try {
         const formData = new FormData(form);
         const res = await fetch(form.action, {
@@ -315,11 +324,14 @@
           const bar = commitProgress.querySelector('.import-progress__bar');
           if (bar) bar.style.width = '100%';
         }
-        if (commitProgressText) commitProgressText.textContent = '匯入完成';
+        if (commitProgressText) {
+          commitProgressText.textContent = `匯入完成 (${importTotal} / ${importTotal})`;
+        }
         window.location.href = '{{ url_for("admin.system_page") }}';
       } catch (err) {
         console.error(err);
         toast('匯入失敗', false);
+        if (commitProgressText) commitProgressText.textContent = '匯入失敗';
       } finally {
         if (commitProgress) commitProgress.classList.remove('is-running');
         if (btn) btn.disabled = false;
@@ -347,17 +359,27 @@
       metaRunning = true;
       updateConfirmState();
 
-      if (metaProgress) metaProgress.classList.add('is-running');
-      if (metaStatus) metaStatus.textContent = '準備抓取...';
-
       const batchSize = 5;
       const total = safeFetchCount || 0;
+      if (metaProgress) metaProgress.classList.add('is-running');
+      if (metaStatus) metaStatus.textContent = '準備抓取...';
+      if (metaProgressText) metaProgressText.textContent = `待處理 ${total} 本`;
       let processed = 0;
       let successCount = 0;
+      let guard = 0;
+      const maxLoops = Math.max(1, Math.ceil(total / batchSize) + 5);
 
       try {
         while (processed < total) {
-          if (metaProgressText) metaProgressText.textContent = `處理中... (${processed} / ${total})`;
+          guard += 1;
+          if (guard > maxLoops) {
+            toast('抓取時間過久，請稍後再試', false);
+            break;
+          }
+          if (metaProgressText) {
+            const remaining = Math.max(0, total - processed);
+            metaProgressText.textContent = `處理中... (${processed} / ${total})，剩餘 ${remaining} 本`;
+          }
 
           const res = await fetch('{{ url_for("admin.admin_import_metadata", _external=False) }}', {
             method: 'POST',
@@ -417,7 +439,10 @@
         metaBtn.disabled = false;
         if (metaProgress) metaProgress.classList.remove('is-running');
         if (metaStatus) metaStatus.textContent = '抓取結束';
-        if (metaProgressText) metaProgressText.textContent = `完成 ${successCount} / ${total}`;
+        if (metaProgressText) {
+          const remaining = Math.max(0, total - processed);
+          metaProgressText.textContent = `完成 ${successCount} / ${total}，剩餘 ${remaining} 本`;
+        }
         metaRunning = false;
         updateConfirmState();
       }
@@ -450,6 +475,7 @@
           if (row) row.classList.add('is-excluded');
         }
       });
+      excludedCount = excluded.length;
       document.querySelectorAll('.title-override').forEach((select) => {
         const key = select.dataset.key;
         if (key && select.value) {
@@ -477,6 +503,10 @@
       if (ackBox) {
         ackBox.disabled = keptWarnings === 0;
         if (keptWarnings === 0) ackBox.checked = false;
+      }
+      const importTotal = Math.max(0, (totalRows || importRows.length) - excludedCount);
+      if (commitProgressText && !commitProgress?.classList.contains('is-running')) {
+        commitProgressText.textContent = `待匯入 ${importTotal} 本`;
       }
       updateConfirmState();
     };

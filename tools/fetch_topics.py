@@ -116,15 +116,22 @@ def fetch_topics_for_title(title, *, verbose=False):
                 print(f"[warn] fallback search failed: {exc}")
 
     if not candidates:
-        parts = title.split()
+        base = (title or "").strip()
+        parts = base.split()
         variants = []
         no_space = "".join(parts)
-        if no_space and no_space != title:
+        if no_space and no_space != base:
             variants.append(no_space)
         if len(parts) >= 2:
             variants.append(" ".join(parts[:2]))
         if len(parts) >= 1:
             variants.append(parts[0])
+        for sep in ("：", ":", "—", "-", "–"):
+            if sep in base:
+                head = base.split(sep)[0].strip()
+                if head and head != base:
+                    variants.append(head)
+                    break
         for alt in variants:
             try:
                 resp = SESSION.get(

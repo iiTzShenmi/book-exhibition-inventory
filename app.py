@@ -1367,6 +1367,11 @@ def inject_is_admin():
     """Expose admin flag to templates for conditional UI."""
     return {"is_admin": bool(session.get("is_admin"))}
 
+@app.context_processor
+def inject_static_version():
+    """Expose a safe static asset version string for cache busting."""
+    return {"static_version": app.config.get("STATIC_VERSION", "")}
+
 def register_blueprints(app):
     from routes.auth import auth_bp
     from routes.inventory import inventory_bp

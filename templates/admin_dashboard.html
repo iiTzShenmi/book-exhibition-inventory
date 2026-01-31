@@ -309,7 +309,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/admin_dashboard.js', v=config['STATIC_VERSION']) }}" defer></script>
+<script src="{{ url_for('static', filename='js/admin_dashboard.js', v=static_version) }}" defer></script>
 <script>
   (() => {
     // Auto-focus first result card after search; fallback to search input

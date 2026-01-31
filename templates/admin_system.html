@@ -61,42 +61,57 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card admin-audit-card">
     <div class="card__header system-audit-header">
       <div>
         <span class="chip chip--soft">操作紀錄</span>
         <h3>最新 200 筆</h3>
       </div>
       <div class="section-head__actions">
+        <button type="button" class="btn btn--ghost btn--sm" id="audit-toggle" data-state="collapsed">展開</button>
         <a class="btn btn--secondary btn--sm" href="{{ url_for('admin.export_audit_csv') }}">匯出 CSV</a>
       </div>
     </div>
-    {% if audit_logs %}
-    <div class="audit-table">
-      <div class="audit-table__head">
-        <span>時間</span>
-        <span>動作</span>
-        <span>目標</span>
-        <span>操作者</span>
-        <span>細節</span>
+    <div class="audit-body is-collapsed" id="audit-body">
+      {% if audit_logs %}
+      <div class="audit-table">
+        <div class="audit-table__head">
+          <span>時間</span>
+          <span>動作</span>
+          <span>目標</span>
+          <span>操作者</span>
+          <span>細節</span>
+        </div>
+        {% for log in audit_logs %}
+        <div class="audit-table__row">
+          <span class="audit-time">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          <span class="audit-action">{{ log.action }}</span>
+          <span class="audit-target">{{ log.target or '-' }}</span>
+          <span class="audit-actor">{{ log.actor or '-' }}</span>
+          <span class="audit-details">{{ log.details or '-' }}</span>
+        </div>
+        {% endfor %}
       </div>
-      {% for log in audit_logs %}
-      <div class="audit-table__row">
-        <span class="audit-time">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
-        <span class="audit-action">{{ log.action }}</span>
-        <span class="audit-target">{{ log.target or '-' }}</span>
-        <span class="audit-actor">{{ log.actor or '-' }}</span>
-        <span class="audit-details">{{ log.details or '-' }}</span>
-      </div>
-      {% endfor %}
+      {% else %}
+      <p class="muted">尚無稽核紀錄。</p>
+      {% endif %}
     </div>
-    {% else %}
-    <p class="muted">尚無稽核紀錄。</p>
-    {% endif %}
   </div>
 </section>
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/admin_backup.js', v=config['STATIC_VERSION']) }}" defer></script>
+<script src="{{ url_for('static', filename='js/admin_backup.js', v=static_version) }}" defer></script>
+<script>
+  (() => {
+    const toggle = document.getElementById('audit-toggle');
+    const body = document.getElementById('audit-body');
+    if (!toggle || !body) return;
+    toggle.addEventListener('click', () => {
+      const collapsed = body.classList.toggle('is-collapsed');
+      toggle.dataset.state = collapsed ? 'collapsed' : 'expanded';
+      toggle.textContent = collapsed ? '展開' : '收合';
+    });
+  })();
+</script>
 {% endblock %}

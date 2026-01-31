@@ -161,7 +161,7 @@ def fetch_url_for_title(title, *, verbose=False):
         return resp
 
     def alt_queries(raw: str):
-        base = raw or ""
+        base = (raw or "").strip()
         parts = base.split()
         tokens = [p for p in parts if p]
         queries = []
@@ -172,6 +172,13 @@ def fetch_url_for_title(title, *, verbose=False):
             queries.append(" ".join(tokens[:2]))
         if len(tokens) >= 1:
             queries.append(tokens[0])
+        # Try trimming subtitle after common separators
+        for sep in ("：", ":", "—", "-", "–"):
+            if sep in base:
+                head = base.split(sep)[0].strip()
+                if head and head != base:
+                    queries.append(head)
+                    break
         return [q for q in queries if q]
 
     try:

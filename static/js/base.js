@@ -2,6 +2,17 @@
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   window.csrfToken = csrfToken;
 
+  window.addEventListener('pageshow', (event) => {
+    try {
+      const nav = performance.getEntriesByType?.('navigation')?.[0];
+      if (event.persisted || (nav && nav.type === 'reload')) {
+        window.scrollTo(0, 0);
+      }
+    } catch (err) {
+      window.scrollTo(0, 0);
+    }
+  });
+
   function showToast(message, ok = true, undoHandler = null) {
     const toast = document.createElement('div');
     toast.className = `toast ${ok ? 'success' : 'error'}`;
@@ -210,6 +221,15 @@
   }
 
   document.addEventListener('click', (event) => {
+    const booksToggle = event.target.closest('.event-books-toggle');
+    if (booksToggle) {
+      const banner = booksToggle.closest('.event-banner');
+      if (banner) {
+        const isOpen = banner.classList.toggle('event-banner--books-open');
+        booksToggle.textContent = isOpen ? '收合封面' : '顯示書籍封面';
+      }
+      return;
+    }
     const closeBtn = event.target.closest('[data-close-announcement]');
     if (closeBtn) {
       closeAnnouncement();
@@ -687,11 +707,6 @@
     const content = document.createElement('div');
     content.className = 'event-banner__content';
 
-    const tag = document.createElement('div');
-    tag.className = 'event-tag';
-    tag.textContent = '✨ 現在主打';
-    content.appendChild(tag);
-
     const title = document.createElement('h2');
     title.className = 'event-title';
     title.textContent = evt?.title || '活動時段';
@@ -699,7 +714,12 @@
 
     const time = document.createElement('div');
     time.className = 'event-time';
-    time.textContent = evt?.time_text || '';
+    time.innerHTML = '';
+    const timeLabel = document.createElement('span');
+    timeLabel.className = 'event-label';
+    timeLabel.textContent = '時間';
+    time.appendChild(timeLabel);
+    time.appendChild(document.createTextNode(evt?.time_text || ''));
     if (!time.textContent) {
       time.style.display = 'none';
     }
@@ -708,18 +728,26 @@
     if (evt?.description) {
       const desc = document.createElement('p');
       desc.className = 'event-desc';
-      desc.textContent = evt.description;
+      const descLabel = document.createElement('span');
+      descLabel.className = 'event-label';
+      descLabel.textContent = '說明';
+      desc.appendChild(descLabel);
+      desc.appendChild(document.createTextNode(evt.description));
       content.appendChild(desc);
     }
 
     const meta = document.createElement('ul');
     meta.className = 'event-meta';
     const metaItems = [];
-    if (evt?.location) metaItems.push(`📍 ${evt.location}`);
-    if (evt?.note) metaItems.push(`🎁 ${evt.note}`);
-    metaItems.forEach((text) => {
+    if (evt?.location) metaItems.push({ label: '地點', value: evt.location });
+    if (evt?.note) metaItems.push({ label: '備註', value: evt.note });
+    metaItems.forEach((item) => {
       const li = document.createElement('li');
-      li.textContent = text;
+      const label = document.createElement('span');
+      label.className = 'event-label';
+      label.textContent = item.label;
+      li.appendChild(label);
+      li.appendChild(document.createTextNode(item.value));
       meta.appendChild(li);
     });
     if (metaItems.length) {
@@ -730,8 +758,14 @@
     if (books.length) {
       const hint = document.createElement('p');
       hint.className = 'event-hint';
-      hint.textContent = '點擊封面查看狀態';
+      hint.textContent = '點擊查看封面';
       content.appendChild(hint);
+
+      const toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'btn btn--secondary btn--sm event-books-toggle';
+      toggleBtn.textContent = '顯示書籍封面';
+      content.appendChild(toggleBtn);
     }
     // No CTA button needed; book covers are clickable.
 

@@ -6,9 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ title or "書展庫存系統" }}</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css', v=config['STATIC_VERSION']) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css', v=static_version) }}">
   {% if request.blueprint == 'admin' %}
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=config['STATIC_VERSION']) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=static_version) }}">
   {% endif %}
   {% block extra_css %}{% endblock %}
 </head>
@@ -73,8 +73,6 @@
             </button>
             <a class="hero-brand__home" href="{{ url_for('inventory.home') }}" aria-label="回到首頁">🏠</a>
           </p>
-          <h1>EXIS 展場庫存系統</h1>
-          <p class="muted">輸入書名、作者或關鍵字，立即查詢展示櫃或備書櫃的庫存狀態。</p>
           <div class="hero__search-row">
             <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
               <div class="search-box{% if request.endpoint == 'inventory.home' %} search-box--intro{% endif %}">
@@ -84,21 +82,6 @@
             </form>
             {% if request.endpoint == 'inventory.home' %}
             <div class="discount-stack">
-              <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
-                <div class="ticket-left">
-                  <div class="ticket-icon">3+冊</div>
-                  <div class="ticket-main">
-                    <span class="promo-label">多本優惠</span>
-                    <div class="promo-value">85<small>折</small></div>
-                    <span class="promo-sub">買三本以上</span>
-                  </div>
-                </div>
-                <div class="ticket-divider"></div>
-                <div class="ticket-right">
-                  <p class="tiny-text">結帳立享折扣</p>
-                  <p class="tiny-text muted">*特價品除外</p>
-                </div>
-              </div>
               <div class="info-card info-card--compact discount-ticket discount-ticket--secondary">
                 <div class="ticket-left">
                   <div class="ticket-icon">1本</div>
@@ -106,11 +89,28 @@
                     <span class="promo-label">單本優惠</span>
                     <div class="promo-value">88<small>折</small></div>
                     <span class="promo-sub">買一本即可</span>
+                    <span class="promo-note">現場結帳立享 · 特價品除外</span>
                   </div>
                 </div>
                 <div class="ticket-divider"></div>
                 <div class="ticket-right">
                   <p class="tiny-text">現場結帳立享</p>
+                  <p class="tiny-text muted">*特價品除外</p>
+                </div>
+              </div>
+              <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
+                <div class="ticket-left">
+                  <div class="ticket-icon">3+冊</div>
+                  <div class="ticket-main">
+                    <span class="promo-label">多本優惠</span>
+                    <div class="promo-value">85<small>折</small></div>
+                    <span class="promo-sub">買三本以上</span>
+                    <span class="promo-note">結帳立享折扣 · 特價品除外</span>
+                  </div>
+                </div>
+                <div class="ticket-divider"></div>
+                <div class="ticket-right">
+                  <p class="tiny-text">結帳立享折扣</p>
                   <p class="tiny-text muted">*特價品除外</p>
                 </div>
               </div>
@@ -256,7 +256,7 @@
       <section class="info-hub">
         <div class="section-head">
           <p class="eyebrow">Highlights</p>
-              <h1>🧭 展場資訊</h1>
+              <h1>🧭 展場活動</h1>
             </div>
 
             <div class="info-grid info-grid--single">
@@ -265,15 +265,15 @@
                   <div class="event-slide">
                     <section class="event-banner">
                       <div class="event-banner__content">
-                        <div class="event-tag">✨ 現在主打</div>
                         <h2 class="event-title">活動時段</h2>
-                        <div class="event-time">每日 14:00 / 17:00</div>
-                        <p class="event-desc">作者快閃分享 • 現場 Q&A</p>
-                        <p class="event-hint">點擊封面查看狀態</p>
+                        <div class="event-time"><span class="event-label">時間</span>每日 14:00 / 17:00</div>
+                        <p class="event-desc"><span class="event-label">說明</span>作者快閃分享 • 現場 Q&A</p>
+                        <p class="event-hint">點擊查看封面</p>
                         <ul class="event-meta">
-                          <li>📍 舞台區域</li>
-                          <li>🎁 現場小禮物</li>
+                          <li><span class="event-label">地點</span>舞台區域</li>
+                          <li><span class="event-label">備註</span>現場小禮物</li>
                         </ul>
+                        <button type="button" class="btn btn--secondary btn--sm event-books-toggle">顯示書籍封面</button>
                         <a class="btn btn--primary" href="#top-sell">查看相關書籍</a>
                       </div>
                       <div class="event-banner__visuals">
@@ -343,35 +343,6 @@
           </div>
         </div>
       </section>
-      {% if request.blueprint != 'admin' %}
-      <section class="qa-section">
-        <div class="section-head">
-          <h2>🙋 常見問題</h2>
-          <p class="muted">現場服務說明與付款方式提醒。</p>
-        </div>
-        <div class="qa-grid">
-          <div class="qa-card">
-            <h3>付款方式</h3>
-            <p>本系統僅供查詢，付款請至結帳櫃檯。</p>
-            <div class="payment-icons" aria-label="支援付款方式">
-              <span class="payment-icon-wrap">
-                <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/linepay.png') }}" alt="LINE Pay" loading="lazy">
-              </span>
-              <span class="payment-icon-wrap">
-                <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/jkopay.png') }}" alt="街口支付" loading="lazy">
-              </span>
-              <span class="payment-icon-wrap">
-                <img class="payment-icon payment-icon--tight" src="{{ url_for('static', filename='icons/pluspay.png') }}" alt="全支付" loading="lazy">
-              </span>
-            </div>
-          </div>
-          <div class="qa-card">
-            <h3>可以線上結帳嗎？</h3>
-            <p>目前不提供線上付款，請於現場櫃檯完成結帳。</p>
-          </div>
-        </div>
-      </section>
-      {% endif %}
       {% endif %}
     </main>
 
@@ -383,8 +354,7 @@
             <span class="brand-text">EXIS</span>
           </div>
           <p class="footer-desc">
-            The high-performance inventory system designed for modern book exhibitions.
-            Real-time tracking, zero latency.
+            High-performance inventory system built for modern book exhibitions and fast-moving crews.
           </p>
           <div class="footer-mascot">
             <div class="pixel-worker sleeping" style="transform: scale(0.8); position: relative; left: 0;">
@@ -396,47 +366,43 @@
 
         <div class="footer-links">
           <h4>Platform</h4>
-          <a href="{{ url_for('inventory.home') }}">Exhibition Home</a>
+          <a href="{{ url_for('inventory.home') }}">Home</a>
           <a href="{{ url_for('api.search') }}">Book Search</a>
-          <a href="#">Live Events</a>
-          <a href="#">Floor Map</a>
+          <a href="{{ url_for('inventory.home') }}#event-carousel">Events</a>
         </div>
 
         <div class="footer-links">
           <h4>Staff Access</h4>
           {% if session.get('is_admin') %}
             <a href="{{ url_for('admin.dashboard') }}" class="highlight-link">⚡ Admin Dashboard</a>
-            <a href="{{ url_for('admin.audit_logs') }}">Audit Logs</a>
-            <a href="{{ url_for('auth.logout') }}">Sign Out</a>
+            <a href="{{ url_for('admin.audit_page') }}">Audit Logs</a>
+            <a href="{{ url_for('auth.logout') }}">Logout</a>
           {% else %}
             <a href="{{ url_for('auth.login') }}">Staff Login</a>
-            <a href="#">Volunteer Portal</a>
           {% endif %}
         </div>
 
         <div class="footer-links">
-          <h4>About</h4>
-          <a href="#">Project Documentation</a>
+          <h4>About / Dev</h4>
+          <a href="#">Documentation</a>
           <a href="#">Report an Issue</a>
           <div class="dev-tag">
             <span>Developed by</span>
-            <strong>Your Name / Team</strong>
+            <strong>EXIS Team</strong>
           </div>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <span>&copy; 2025 EXIS Project. All rights reserved.</span>
+        <span>&copy; 2026 EXIS Project. All rights reserved.</span>
         <div class="footer-meta">
           <span class="status-dot"></span> System Operational
-          <span class="divider">|</span>
-          <span>v1.2.0</span>
         </div>
       </div>
     </footer>
   </div>
 
-  <script src="{{ url_for('static', filename='js/base.js', v=config['STATIC_VERSION']) }}" defer></script>
+  <script src="{{ url_for('static', filename='js/base.js', v=static_version) }}" defer></script>
   <script>
     (() => {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';

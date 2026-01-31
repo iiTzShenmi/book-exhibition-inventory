@@ -36,7 +36,7 @@
       <div class="status-list">
         {% for entry in entries %}
         <div class="status-row">
-          <span class="cab">📍 {{ entry.cabinet }}</span>
+          <span class="cab">{{ entry.cabinet }}</span>
           <span class="stat {{ entry.cls or '' }}">{{ entry.status }}</span>
         </div>
         {% if entry.notes %}
@@ -107,7 +107,7 @@
       <div class="status-list">
         {% for entry in item.entries %}
         <div class="status-row">
-          <span class="cab">📍 {{ entry.cabinet }}</span>
+          <span class="cab">{{ entry.cabinet }}</span>
           <span class="stat {{ entry.cls or '' }}">{{ entry.status }}</span>
         </div>
         {% if entry.notes %}
@@ -202,75 +202,11 @@
       });
     });
 
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay';
-    overlay.style.display = 'none';
-    overlay.innerHTML = `
-      <div class="modal-box medium cover-modal-box">
-        <button type="button" class="modal-close" data-close-cover>&times;</button>
-        <div class="cover-modal-content">
-          <div class="cover-modal-body"></div>
-          <div>
-            <div class="cover-modal-meta"></div>
-            <div class="cover-modal-cabinets"></div>
-          </div>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const body = overlay.querySelector('.cover-modal-body');
-    const meta = overlay.querySelector('.cover-modal-meta');
-    const cabList = overlay.querySelector('.cover-modal-cabinets');
-    const close = () => { overlay.style.display = 'none'; body.innerHTML = ''; meta.innerHTML = ''; cabList.innerHTML = ''; };
-
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay || e.target.dataset.closeCover !== undefined) close();
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && overlay.style.display === 'flex') {
-        close();
-      }
-    });
-
     document.querySelectorAll('.result-card.has-cover').forEach(card => {
-      card.addEventListener('click', () => {
-        const img = card.querySelector('.cover-pop img');
-        if (!img) return;
-        const title = card.dataset.title || '';
-        const author = (card.dataset.author || '').trim();
-        const authorBlock = author
-          ? `<div class="cover-author">作者：${author}</div>`
-          : `<div class="cover-author muted">作者：未提供</div>`;
-        let entries = [];
-        try {
-          entries = JSON.parse(card.dataset.entries || '[]');
-        } catch (e) {
-          entries = [];
-        }
-        body.innerHTML = `<img src="${img.src}" alt="${img.alt || ''}" class="cover-modal-img">`;
-        meta.innerHTML = `
-          <div class="cover-meta-row">
-            <div class="cover-title">${title}</div>
-            ${authorBlock}
-          </div>
-        `;
-        if (entries && entries.length) {
-          cabList.innerHTML = entries.map(e => {
-            const normalizedStatus = (e.status || '').includes('展示')
-              ? e.status.includes('缺貨') ? '缺貨' : '展示中'
-              : e.status || '';
-            const statusClass = e.cls || '';
-            const rowClass = statusClass.includes('out') ? 'out-stock' : statusClass.includes('in') ? 'in-stock' : '';
-            return `
-              <div class="cover-cab-row ${rowClass}">
-                <span class="cabinet">${e.cabinet}</span>
-                <span class="status ${statusClass}">${normalizedStatus}</span>
-              </div>
-            `;
-          }).join('');
-        }
-        overlay.style.display = 'flex';
+      card.addEventListener('click', (event) => {
+        const isInteractive = event.target.closest('button, a, input, select, textarea');
+        if (isInteractive) return;
+        card.classList.toggle('show-status');
       });
     });
   })();

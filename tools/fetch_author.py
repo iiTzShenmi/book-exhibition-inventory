@@ -132,7 +132,7 @@ def fetch_author_for_title(title, *, verbose=False):
   if not candidates:
     # Retry with spacing variants similar to cover fetcher
     def alt_queries(raw: str):
-      base = raw or ""
+      base = (raw or "").strip()
       parts = base.split()
       tokens = [p for p in parts if p]
       queries = []
@@ -143,6 +143,12 @@ def fetch_author_for_title(title, *, verbose=False):
         queries.append(" ".join(tokens[:2]))
       if len(tokens) >= 1:
         queries.append(tokens[0])
+      for sep in ("：", ":", "—", "-", "–"):
+        if sep in base:
+          head = base.split(sep)[0].strip()
+          if head and head != base:
+            queries.append(head)
+            break
       return [q for q in queries if q]
 
     for alt in alt_queries(title):
