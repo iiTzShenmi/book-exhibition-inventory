@@ -7,14 +7,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from database.models import Book, BookTitle, Cabinet, EventSchedule, db
+from database.services import get_top_books
 from app import (
     active_books_query,
     book_to_dict,
     build_grouped_book_entries,
     cabinet_to_dict,
     cabinet_type_name,
+    cover_url_for_title,
     get_or_create_title,
-    get_top_sellers,
     is_postgres,
     log_action,
 )
@@ -25,7 +26,15 @@ inventory_bp = Blueprint("inventory", __name__)
 
 @inventory_bp.route("/")
 def home():
-    top_sellers = get_top_sellers(limit=10)
+    top_books = get_top_books(limit=10)
+    top_books_data = [
+        {
+            "title": bt.title,
+            "cover": cover_url_for_title(bt),
+            "view_count": bt.view_count or 0,
+        }
+        for bt in top_books
+    ]
     random_picks = active_books_query().order_by(func.random()).limit(10).all()
     random_picks_data = [book_to_dict(book) for book in random_picks]
     events = (
@@ -38,7 +47,7 @@ def home():
         "home.html",
         title="書展庫存系統",
         show_top_sellers=True,
-        top_sellers=top_sellers,
+        top_sellers=top_books_data,
         random_picks=random_picks_data,
         events=events,
     )

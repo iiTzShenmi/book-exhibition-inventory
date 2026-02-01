@@ -59,7 +59,7 @@
 
     <main class="page-content">
       {% if request.endpoint in ['inventory.home', 'api.search'] %}
-      <section class="hero hero--single">
+      <section class="hero hero--single" id="search-section">
         <div class="hero__text">
           <p class="eyebrow hero-brand">
             <span class="brand__mark">⚡</span>
@@ -81,40 +81,6 @@
               </div>
             </form>
             {% if request.endpoint == 'inventory.home' %}
-            <div class="discount-stack">
-              <div class="info-card info-card--compact discount-ticket discount-ticket--secondary">
-                <div class="ticket-left">
-                  <div class="ticket-icon">1本</div>
-                  <div class="ticket-main">
-                    <span class="promo-label">單本優惠</span>
-                    <div class="promo-value">88<small>折</small></div>
-                    <span class="promo-sub">買一本即可</span>
-                    <span class="promo-note">現場結帳立享 · 特價品除外</span>
-                  </div>
-                </div>
-                <div class="ticket-divider"></div>
-                <div class="ticket-right">
-                  <p class="tiny-text">現場結帳立享</p>
-                  <p class="tiny-text muted">*特價品除外</p>
-                </div>
-              </div>
-              <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
-                <div class="ticket-left">
-                  <div class="ticket-icon">3+冊</div>
-                  <div class="ticket-main">
-                    <span class="promo-label">多本優惠</span>
-                    <div class="promo-value">85<small>折</small></div>
-                    <span class="promo-sub">買三本以上</span>
-                    <span class="promo-note">結帳立享折扣 · 特價品除外</span>
-                  </div>
-                </div>
-                <div class="ticket-divider"></div>
-                <div class="ticket-right">
-                  <p class="tiny-text">結帳立享折扣</p>
-                  <p class="tiny-text muted">*特價品除外</p>
-                </div>
-              </div>
-            </div>
             {% endif %}
           </div>
         </div>
@@ -253,7 +219,7 @@
       {% endif %}
           {% block content %}{% endblock %}
       {% if request.blueprint != 'admin' and request.endpoint == 'inventory.home' %}
-      <section class="info-hub">
+      <section class="info-hub" id="events-section">
         <div class="section-head">
           <p class="eyebrow">Highlights</p>
               <h1>🧭 展場活動</h1>
@@ -271,7 +237,6 @@
                         <p class="event-hint">點擊查看封面</p>
                         <ul class="event-meta">
                           <li><span class="event-label">地點</span>舞台區域</li>
-                          <li><span class="event-label">備註</span>現場小禮物</li>
                         </ul>
                         <button type="button" class="btn btn--secondary btn--sm event-books-toggle">顯示書籍封面</button>
                         <a class="btn btn--primary" href="#top-sell">查看相關書籍</a>
@@ -297,29 +262,70 @@
       {% if show_top_sellers %}
       <section class="top-sell" id="top-sell">
         <div class="section-head">
-          <p class="eyebrow">熱門選書</p>
-          <h2>🔥 展場熱銷</h2>
+          <p class="eyebrow">Trending Now</p>
+          <h2>🔥 熱門點閱</h2>
         </div>
 
         <div class="marquee-container">
           <div class="marquee-row scroll-left">
             <div class="marquee-track">
               {% for item in top_sellers %}
-              <div class="book-card-mini" data-title="{{ item.title }}" data-source="top_seller">
+              <div class="book-card-mini" data-title="{{ item.title }}" data-source="trending">
                 <img src="{{ item.cover }}" alt="{{ item.title }}" {% if loop.first %}loading="eager" fetchpriority="high" sizes="(max-width: 720px) 140px, 200px"{% else %}loading="lazy"{% endif %}>
                 <div class="rank">#{{ loop.index }}</div>
+                <div class="view-count">點閱數： {{ item.view_count }}</div>
               </div>
               {% endfor %}
               {% for item in top_sellers %}
-              <div class="book-card-mini" data-title="{{ item.title }}" data-source="top_seller">
+              <div class="book-card-mini" data-title="{{ item.title }}" data-source="trending">
                 <img src="{{ item.cover }}" alt="{{ item.title }}" loading="lazy">
                 <div class="rank">#{{ loop.index }}</div>
+                <div class="view-count">點閱數： {{ item.view_count }}</div>
               </div>
               {% endfor %}
             </div>
           </div>
         </div>
       </section>
+
+      {% if request.endpoint == 'inventory.home' %}
+      <section class="top-sell">
+        <div class="discount-stack">
+          <div class="info-card info-card--compact discount-ticket discount-ticket--secondary">
+            <div class="ticket-left">
+              <div class="ticket-icon">1本</div>
+              <div class="ticket-main">
+                <span class="promo-label">單本優惠</span>
+                <div class="promo-value">88<small>折</small></div>
+                <span class="promo-sub">買一本即可</span>
+                <span class="promo-note">現場結帳立享 · 特價品除外</span>
+              </div>
+            </div>
+            <div class="ticket-divider"></div>
+            <div class="ticket-right">
+              <p class="tiny-text">現場結帳立享</p>
+              <p class="tiny-text muted">*特價品除外</p>
+            </div>
+          </div>
+          <div class="info-card info-card--compact discount-ticket discount-ticket--primary">
+            <div class="ticket-left">
+              <div class="ticket-icon">3+冊</div>
+              <div class="ticket-main">
+                <span class="promo-label">多本優惠</span>
+                <div class="promo-value">85<small>折</small></div>
+                <span class="promo-sub">買三本以上</span>
+                <span class="promo-note">結帳立享折扣 · 特價品除外</span>
+              </div>
+            </div>
+            <div class="ticket-divider"></div>
+            <div class="ticket-right">
+              <p class="tiny-text">結帳立享折扣</p>
+              <p class="tiny-text muted">*特價品除外</p>
+            </div>
+          </div>
+        </div>
+      </section>
+      {% endif %}
 
       <section class="top-sell">
         <div class="section-head">
@@ -354,77 +360,114 @@
             <span class="brand-text">EXIS</span>
           </div>
           <p class="footer-desc">
-            High-performance inventory system built for modern book exhibitions and fast-moving crews.
+            EXhibition Inventory System
           </p>
-          <div class="footer-mascot">
-            <div class="pixel-worker sleeping" style="transform: scale(0.8); position: relative; left: 0;">
-              <div class="sprite"></div>
-              <div class="bubble" style="left: 20px;">System OK</div>
-            </div>
-          </div>
+          <p class="footer-desc">
+            為現代書展與展場作業打造的高效能庫存系統。
+          </p>
         </div>
 
         <div class="footer-links">
-          <h4>Platform</h4>
-          <a href="{{ url_for('inventory.home') }}">Home</a>
-          <a href="{{ url_for('api.search') }}">Book Search</a>
-          <a href="{{ url_for('inventory.home') }}#event-carousel">Events</a>
+          <h4>平台功能</h4>
+          <a href="{{ url_for('inventory.home') }}">首頁</a>
+          <a href="{{ url_for('inventory.home') }}#search-section">書籍搜尋</a>
+          <a href="{{ url_for('inventory.home') }}#events-section">展場活動</a>
         </div>
 
         <div class="footer-links">
-          <h4>Staff Access</h4>
+          <h4>工作人員</h4>
           {% if session.get('is_admin') %}
-            <a href="{{ url_for('admin.dashboard') }}" class="highlight-link">⚡ Admin Dashboard</a>
-            <a href="{{ url_for('admin.audit_page') }}">Audit Logs</a>
-            <a href="{{ url_for('auth.logout') }}">Logout</a>
+            <a href="{{ url_for('admin.dashboard') }}" class="highlight-link">⚡ 管理後台</a>
+            <a href="{{ url_for('admin.audit_page') }}">操作紀錄</a>
+            <a href="{{ url_for('auth.logout') }}">登出</a>
           {% else %}
-            <a href="{{ url_for('auth.login') }}">Staff Login</a>
+            <a href="{{ url_for('auth.login') }}">登入</a>
           {% endif %}
         </div>
 
         <div class="footer-links">
-          <h4>About / Dev</h4>
-          <a href="#">Documentation</a>
-          <a href="#">Report an Issue</a>
-          <div class="dev-tag">
-            <span>Developed by</span>
-            <strong>EXIS Team</strong>
-          </div>
+          <h4>關於 / 開發</h4>
+          <a href="#" data-modal-target="doc-modal">專案文件</a>
+          <a href="#" data-modal-target="issue-modal">回報問題</a>
+          <a href="#" data-modal-target="dev-modal">開發者資訊</a>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <span>&copy; 2026 EXIS Project. All rights reserved.</span>
+        <span>&copy; 2026 EXIS — EXhibition Inventory System. 版權所有。</span>
         <div class="footer-meta">
-          <span class="status-dot"></span> System Operational
+          <span class="status-dot"></span> 系統運行正常
         </div>
       </div>
     </footer>
+
+    <div class="modal-overlay" id="doc-modal" data-footer-modal style="display:none;">
+      <div class="modal-box medium footer-modal">
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+        <div class="modal-header">
+          <h3>專案文件</h3>
+        </div>
+        <div class="modal-body">
+          <p class="muted">© 2026 EXIS 專案. 版權所有。</p>
+          <p><strong>目前版本：</strong> v2.3</p>
+          <p>EXIS 是為現代書展打造的高效能庫存系統，強調即時性與現場清晰操作。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="issue-modal" data-footer-modal style="display:none;">
+      <div class="modal-box medium footer-modal">
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+        <div class="modal-header">
+          <h3>回報問題</h3>
+        </div>
+        <div class="modal-body">
+          <form class="modal-form" data-issue-form>
+            <label class="field">
+              <span>姓名</span>
+              <input type="text" name="name" required>
+            </label>
+            <label class="field">
+              <span>問題類型</span>
+              <select name="type" required>
+                <option value="">請選擇</option>
+                <option value="bug">錯誤</option>
+                <option value="data">資料問題</option>
+                <option value="performance">效能</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>問題描述</span>
+              <textarea name="description" rows="4" required></textarea>
+            </label>
+            <div class="actions">
+              <button type="submit" class="btn btn--primary">送出</button>
+              <button type="button" class="btn btn--secondary" data-close-modal>取消</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-overlay" id="dev-modal" data-footer-modal style="display:none;">
+      <div class="modal-box medium footer-modal">
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+        <div class="modal-header">
+          <h3>開發團隊</h3>
+        </div>
+        <div class="modal-body">
+          <ul class="dev-list">
+            <li><strong>Eason Huang</strong> — 主開發<br><span class="muted">contact : shenmi174@gmail.com</span></li>
+            <li><strong>ChatGPT-5.2 Codex</strong> — 協助</li>
+            <li><strong>Gemini 3</strong> — 協助</li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="{{ url_for('static', filename='js/base.js', v=static_version) }}" defer></script>
-  <script>
-    (() => {
-      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-      const sendView = (title, source) => {
-        if (!title) return;
-        fetch('{{ url_for("api.api_view_event") }}', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrf,
-          },
-          body: JSON.stringify({ title, source }),
-        }).catch(() => {});
-      };
-      document.addEventListener('click', (e) => {
-        const card = e.target.closest('.book-card[data-title][data-source="top_seller"]');
-        if (!card) return;
-        const title = card.dataset.title || '';
-        sendView(title, 'top_seller');
-      });
-    })();
-  </script>
   {% block extra_js %}{% endblock %}
 </body>
 

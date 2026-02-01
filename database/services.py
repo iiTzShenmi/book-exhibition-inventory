@@ -138,6 +138,18 @@ class CabinetService:
         """Get all cabinets."""
         return Cabinet.query.order_by(Cabinet.name).all()
 
+
+def get_top_books(limit: int = 10) -> List[BookTitle]:
+    """Return trending books by view_count, excluding archived inventory."""
+    return (
+        BookTitle.query.join(Inventory)
+        .filter(Inventory.status == "active")
+        .order_by(BookTitle.view_count.desc(), BookTitle.updated_at.desc())
+        .distinct()
+        .limit(limit)
+        .all()
+    )
+
     @staticmethod
     def update_cabinet(cabinet_id: int, name: Optional[str] = None, cab_type: Optional[str] = None) -> Optional[Cabinet]:
         """Update cabinet name and/or type."""

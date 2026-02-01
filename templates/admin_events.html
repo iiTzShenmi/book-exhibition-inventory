@@ -26,9 +26,14 @@
           <span>標題</span>
           <input type="text" name="title" placeholder="作者快閃分享" required>
         </label>
-        <label class="event-field">
+        <label class="event-field event-field--time">
           <span>時間</span>
-          <input type="text" name="time_text" placeholder="每日 14:00 / 17:00" required>
+          <div class="event-time-range">
+            <select name="time_start" class="time-select" required></select>
+            <span class="time-sep">→</span>
+            <select name="time_end" class="time-select" required></select>
+          </div>
+          <input type="hidden" name="time_text" data-time-text>
         </label>
         <label class="event-field">
           <span>說明</span>
@@ -81,9 +86,14 @@
             <span>標題</span>
             <input type="text" name="title" value="{{ event.title }}" required>
           </label>
-          <label class="event-field">
+          <label class="event-field event-field--time">
             <span>時間</span>
-            <input type="text" name="time_text" value="{{ event.time_text }}" required>
+            <div class="event-time-range">
+              <select name="time_start" class="time-select" required></select>
+              <span class="time-sep">→</span>
+              <select name="time_end" class="time-select" required></select>
+            </div>
+            <input type="hidden" name="time_text" value="{{ event.time_text }}" data-time-text>
           </label>
           <label class="event-field">
             <span>說明</span>
@@ -133,6 +143,7 @@
     {% endif %}
   </div>
 </section>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -361,6 +372,50 @@
     };
 
     document.querySelectorAll('.event-book-picker').forEach(initBookPicker);
+
+    const buildTimeOptions = () => {
+      const options = [];
+      for (let h = 0; h < 24; h++) {
+        for (let m = 0; m < 60; m += 15) {
+          const hh = String(h).padStart(2, '0');
+          const mm = String(m).padStart(2, '0');
+          options.push(`${hh}:${mm}`);
+        }
+      }
+      return options;
+    };
+
+    const timeOptions = buildTimeOptions();
+    document.querySelectorAll('.time-select').forEach((select) => {
+      select.innerHTML = '<option value="">--:--</option>' + timeOptions.map((t) => `<option value="${t}">${t}</option>`).join('');
+    });
+
+    const syncTimeText = (form) => {
+      const start = form.querySelector('select[name="time_start"]');
+      const end = form.querySelector('select[name="time_end"]');
+      const out = form.querySelector('input[data-time-text]');
+      if (!start || !end || !out) return;
+      if (start.value && end.value) {
+        out.value = `${start.value} / ${end.value}`;
+      } else {
+        out.value = '';
+      }
+    };
+
+    document.querySelectorAll('.admin-event-form, .event-row').forEach((form) => {
+      const start = form.querySelector('select[name="time_start"]');
+      const end = form.querySelector('select[name="time_end"]');
+      const out = form.querySelector('input[data-time-text]');
+      if (!start || !end) return;
+      if (out && out.value) {
+        const matches = out.value.match(/\d{1,2}:\d{2}/g) || [];
+        if (matches[0]) start.value = matches[0];
+        if (matches[1]) end.value = matches[1];
+      }
+      syncTimeText(form);
+      start.addEventListener('input', () => syncTimeText(form));
+      end.addEventListener('input', () => syncTimeText(form));
+    });
 
     const forms = Array.from(document.querySelectorAll('.admin-event-form, .event-row'));
     forms.forEach((form) => {

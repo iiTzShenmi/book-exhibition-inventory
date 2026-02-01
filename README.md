@@ -69,14 +69,6 @@ Provides search suggestions when no direct results are found (auto-called in `/s
 - Scoring weights: title 65%, topic overlap 35%, plus bonuses for title substrings and topic hits.
 - `BookProfile` fields: `title`, `topics`, `author`, `cabinet`, `in_stock`.
 
-## Prototypes
-
-- **Top Views Monitor** (`prototypes/top_views_monitor/`): Logs views as JSONL (`logs/view_events.jsonl`) and reports most-viewed titles.
-  - Run: `python prototypes/top_views_monitor/analyze_views.py --days 7 --top 15`
-  - Optional filters: `--days 1 --source search --top 10`
-  - Log format: `{"timestamp":"2025-02-20T12:30:45","title":"原子習慣","source":"search","actor":"guest"}`
-  - No external deps; safe to run even if the log file is missing.
-
 ## Project Structure
 
 ```
@@ -90,7 +82,6 @@ Web/
 ├── tools/                 # Utility scripts
 ├── static/                # CSS/JS assets
 ├── templates/             # Jinja2 templates
-├── docs/                  # Documentation
 └── requirements.txt       # Python dependencies
 ```
 
@@ -117,14 +108,45 @@ ADMIN_PASSWORD=dev-password
 
 **Note:** The database connection is automatically configured from `DATABASE_URL`. If not set, the app uses SQLite for local development.
 
-## Documentation Index
+## Documentation (Merged)
 
-- **[Quick Guide](QUICK_GUIDE.md)** - Common tasks and shortcuts
-- **[Setup Guide](SETUP.md)** - Initial setup and configuration
-- **[Database Architecture](docs/DATABASE_ARCHITECTURE.md)** - Schema and best practices
-- **[Migration Guide](docs/MIGRATION_GUIDE.md)** - Migration instructions
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and fixes
-- **[Fix Null Title ID](docs/FIX_NULL_TITLE_ID.md)** / **[Prevent Null Title ID](docs/PREVENT_NULL_TITLE_ID.md)** / **[Remove Quantity Tracking](docs/REMOVE_QUANTITY_TRACKING.md)**
+The separate `docs/` folder has been merged into this README. Key operational notes:
+
+### Troubleshooting (NULL title_id)
+- Check issues:
+  ```bash
+  python -m database.tools.db_tools check
+  ```
+- Fix NULL title_id rows:
+  ```bash
+  python -m database.tools.db_tools purge-null
+  # or
+  python -m database.tools.db_tools dedupe --fix-null-inventory
+  ```
+
+### Migrations / Schema Changes
+- Quantity tracking has been removed (no qty columns on inventory).
+- Always ensure migrations run on startup (see `initialize_app()` in `app.py`).
+
+### Cleanup Notes
+- Logs are temporary and safe to delete:
+  ```bash
+  rm database/logs/*.txt
+  ```
+- Reports are regenerated as needed:
+  ```bash
+  rm database/tools/reports/*.tsv
+  ```
+- Backups live in `database/backups/` (keep as needed).
+
+### Database Structure (Summary)
+Core tables:
+- `cabinet` (display/reserve locations)
+- `book_title` (title metadata)
+- `inventory` (title ↔ cabinet, no quantity)
+- `admin_user`, `admin_invite`
+- `audit_log`
+- `event_schedule` + `event_books`
 
 ## Deployment
 

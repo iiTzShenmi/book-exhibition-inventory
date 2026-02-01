@@ -18,7 +18,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from tools import env_loader  # loads .env into os.environ
 from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
-from database.models import ViewEvent, TopSellerSnapshot, EventSchedule, BackupArchive, event_books
+from database.models import EventSchedule, BackupArchive, event_books
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -519,6 +519,47 @@ def ensure_title_cover_column():
             conn.execute(text("ALTER TABLE book_title ADD COLUMN cover_link TEXT"))
 
 
+def ensure_book_title_view_columns():
+    """Ensure BookTitle has view_count and last_viewed_at columns."""
+    if is_postgres():
+        try:
+            with db.engine.connect() as check_conn:
+                view_col = check_conn.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'book_title'
+                    AND column_name = 'view_count'
+                """)).fetchone()
+                last_col = check_conn.execute(text("""
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_name = 'book_title'
+                    AND column_name = 'last_viewed_at'
+                """)).fetchone()
+            if not view_col:
+                with db.engine.begin() as alter_conn:
+                    alter_conn.execute(text("ALTER TABLE book_title ADD COLUMN view_count INTEGER DEFAULT 0 NOT NULL"))
+                    alter_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_book_title_view_count ON book_title (view_count)"))
+            if not last_col:
+                with db.engine.begin() as alter_conn:
+                    alter_conn.execute(text("ALTER TABLE book_title ADD COLUMN last_viewed_at TIMESTAMP NULL"))
+        except Exception as e:
+            print(f"[migration] Error ensuring book_title view columns: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        return
+
+    with db.engine.connect() as conn:
+        result = conn.execute(text("PRAGMA table_info(book_title)"))
+        columns = [row[1] for row in result]
+    with db.engine.begin() as conn:
+        if "view_count" not in columns:
+            conn.execute(text("ALTER TABLE book_title ADD COLUMN view_count INTEGER DEFAULT 0 NOT NULL"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_book_title_view_count ON book_title (view_count)"))
+        if "last_viewed_at" not in columns:
+            conn.execute(text("ALTER TABLE book_title ADD COLUMN last_viewed_at DATETIME NULL"))
+
 def ensure_inventory_in_stock_column():
     """Ensure Inventory table has an in_stock column for toggle functionality."""
     if is_postgres():
@@ -746,134 +787,6 @@ def ensure_admin_email_column():
             with db.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE admin_invite ADD COLUMN role VARCHAR(50)"))
                 conn.commit()
-    if "view_event" not in inspector.get_table_names():
-        ViewEvent.__table__.create(db.engine)
-    if "top_seller_snapshot" not in inspector.get_table_names():
-        TopSellerSnapshot.__table__.create(db.engine)
-
-
-CACHE_DURATION = int(os.environ.get("TOP_SELLER_CACHE_SECONDS", "300"))
-TOP_SELLER_SNAPSHOT_MAX_AGE = int(os.environ.get("TOP_SELLER_SNAPSHOT_MAX_AGE", "3600"))
-
-
-def _cache_get_json(key: str, max_age: int | None = None):
-    """Fetch cached JSON from Redis or local fallback."""
-    if redis_client:
-        try:
-            raw = redis_client.get(key)
-            if raw:
-                return json.loads(raw)
-        except Exception as err:
-            print(f"[cache] redis read failed for {key}: {err}")
-    if key in _local_cache:
-        ts, value = _local_cache[key]
-        if max_age is None or (datetime.utcnow() - ts).total_seconds() < max_age:
-            return value
-        _local_cache.pop(key, None)
-    return None
-
-
-def _cache_set_json(key: str, value, ttl: int = CACHE_DURATION):
-    """Cache JSON to Redis or local fallback."""
-    if redis_client:
-        try:
-            redis_client.setex(key, ttl, json.dumps(value))
-            return
-        except Exception as err:
-            print(f"[cache] redis write failed for {key}: {err}")
-    _local_cache[key] = (datetime.utcnow(), value)
-
-
-def refresh_top_sellers(limit: int = 8):
-    """Compute top sellers and persist snapshot for reuse."""
-    sellers: list[dict] = []
-    now = datetime.utcnow()
-
-    rows = (
-        db.session.query(ViewEvent.title, func.count(ViewEvent.id).label("cnt"))
-        .filter(ViewEvent.title != None)  # noqa: E711
-        .group_by(ViewEvent.title)
-        .order_by(func.count(ViewEvent.id).desc())
-        .limit(limit * 2)
-        .all()
-    )
-
-    if rows:
-        top_titles = [r.title for r in rows]
-        title_map = {
-            bt.title: bt
-            for bt in BookTitle.query.filter(BookTitle.title.in_(top_titles)).all()
-        }
-        for title, cnt in rows[:limit]:
-            bt = title_map.get(title)
-            sellers.append(
-                {
-                    "title": title,
-                    "cover": cover_url_for_title(bt),
-                    "count": cnt,
-                }
-            )
-
-    if not sellers:
-        top_titles = (
-            BookTitle.query.join(Inventory)
-            .filter(Inventory.status == "active")
-            .order_by(Inventory.updated_at.desc())
-            .limit(limit)
-            .all()
-        )
-        for bt in top_titles:
-            sellers.append({
-                "title": bt.title,
-                "cover": cover_url_for_title(bt),
-                "count": None,
-            })
-
-    try:
-        db.session.query(TopSellerSnapshot).filter_by(limit=limit).delete()
-        db.session.add(
-            TopSellerSnapshot(
-                limit=limit,
-                payload=json.dumps(sellers),
-                calculated_at=now,
-            )
-        )
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        print(f"[top_sellers] snapshot write failed: {exc}")
-
-    _cache_set_json(f"top_sellers:{limit}", sellers, ttl=CACHE_DURATION)
-    return sellers
-
-
-def get_top_sellers(limit=8):
-    """Return cached top sellers shared across workers."""
-    cache_key = f"top_sellers:{limit}"
-    cached = _cache_get_json(cache_key, max_age=CACHE_DURATION)
-    if cached:
-        return cached[:limit]
-
-    snapshot = (
-        TopSellerSnapshot.query.filter_by(limit=limit)
-        .order_by(TopSellerSnapshot.calculated_at.desc())
-        .first()
-    )
-
-    sellers: list[dict] = []
-    now = datetime.utcnow()
-    if snapshot and snapshot.payload:
-        try:
-            if not snapshot.calculated_at or (now - snapshot.calculated_at).total_seconds() < TOP_SELLER_SNAPSHOT_MAX_AGE:
-                sellers = json.loads(snapshot.payload)
-        except Exception:
-            sellers = []
-
-    if not sellers:
-        sellers = refresh_top_sellers(limit=limit)
-
-    _cache_set_json(cache_key, sellers, ttl=CACHE_DURATION)
-    return sellers[:limit]
 
 
 def ensure_default_admin():
@@ -900,20 +813,6 @@ def ensure_default_admin():
     db.session.add(user)
     db.session.commit()
     log_action("seed_admin", target=username, details=f"created default admin user (email={email})")
-    db.session.commit()
-
-
-def log_view_event(title, source=None, actor=None):
-    """Persist a view event for top-seller aggregation."""
-    clean_title = (title or "").strip()
-    if not clean_title:
-        return
-    evt = ViewEvent(
-        title=clean_title,
-        source=(source or "").strip() or None,
-        actor=(actor or "").strip() or None,
-    )
-    db.session.add(evt)
     db.session.commit()
 
 
@@ -951,6 +850,7 @@ def initialize_app():
         ensure_admin_email_column()
         ensure_default_admin()
         ensure_title_cover_column()
+        ensure_book_title_view_columns()
         ensure_cabinet_type_column()
         ensure_inventory_in_stock_column()
         ensure_inventory_status_columns()
@@ -971,6 +871,7 @@ if skip_init and skip_init not in ("0", "false", "no"):
         print("[init] running critical schema migrations...")
         ensure_inventory_in_stock_column()
         ensure_inventory_status_columns()
+        ensure_book_title_view_columns()
         ensure_pg_search_indexes()
 else:
     initialize_app()

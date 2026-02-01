@@ -42,6 +42,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -584,10 +588,6 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(47, 107, 255, 0.12);
-  border: 1px solid rgba(47, 107, 255, 0.18);
-  border-radius: 999px;
-  padding: 4px 10px;
   width: fit-content;
 }
 
@@ -595,7 +595,7 @@ textarea:focus {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
-  max-width: 520px;
+  max-width: none;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -624,10 +624,10 @@ textarea:focus {
 }
 
 .event-meta li {
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(47, 107, 255, 0.12);
-  border-radius: 10px;
-  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(47, 107, 255, 0.14);
+  border-radius: 12px;
+  padding: 8px 12px;
 }
 
 .event-label {
@@ -640,6 +640,18 @@ textarea:focus {
   font-size: 0.85rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.event-time,
+.event-desc,
+.event-meta li {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(47, 107, 255, 0.14);
+  border-radius: 12px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .event-banner__visuals {
@@ -700,8 +712,8 @@ textarea:focus {
 }
 
 .showcase-more {
-  width: calc(var(--event-cover-width) * 0.7);
-  height: calc(var(--event-cover-height) * 0.7);
+  width: var(--event-cover-width);
+  height: var(--event-cover-height);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.7);
   border: 1px dashed rgba(47, 107, 255, 0.35);
@@ -819,7 +831,7 @@ textarea:focus {
   overflow: hidden;
   position: relative;
   cursor: grab;
-  touch-action: pan-x;
+  touch-action: pan-y;
 }
 
 .event-track {
@@ -2371,8 +2383,8 @@ body:not(.is-admin) .info-hub {
   }
 
   .showcase-more {
-    width: calc(var(--event-cover-width) * 0.6);
-    height: calc(var(--event-cover-height) * 0.6);
+    width: var(--event-cover-width);
+    height: var(--event-cover-height);
   }
 
   .results-grid {
@@ -2528,6 +2540,19 @@ body:not(.is-admin) .info-hub {
   border-radius: 4px;
   z-index: 2;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.book-card-mini .view-count {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(18, 24, 38, 0.75);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  z-index: 2;
 }
 
 .marquee-row:hover .marquee-track {
@@ -2925,8 +2950,32 @@ body:not(.is-admin) .info-hub {
 }
 
 .footer-mascot {
-  height: 60px;
+  height: 86px;
   position: relative;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.footer-mascot::before {
+  content: "SYSTEM CREW";
+  font-size: 0.65rem;
+  letter-spacing: 0.24em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.footer-mascot .pixel-worker {
+  transform: scale(0.9);
+}
+
+.footer-mascot .bubble {
+  left: 42px;
+  top: -2px;
 }
 
 .footer-links h4 {
@@ -2962,6 +3011,7 @@ body:not(.is-admin) .info-hub {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   font-size: 0.85rem;
+  cursor: pointer;
 }
 
 .dev-tag strong {
@@ -3001,6 +3051,59 @@ body:not(.is-admin) .info-hub {
   0% { transform: scale(1); opacity: 0.9; box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
   50% { transform: scale(1.25); opacity: 1; box-shadow: 0 0 14px rgba(46, 204, 113, 0.6); }
   100% { transform: scale(1); opacity: 0.9; box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
+}
+
+.footer-modal {
+  background: rgba(26, 26, 26, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  color: #e5e7eb;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.footer-modal .modal-header h3 {
+  margin: 0;
+  color: #fff;
+}
+
+.footer-modal .modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.footer-modal .field span {
+  color: #cbd5f5;
+  font-size: 0.85rem;
+}
+
+.footer-modal input,
+.footer-modal select,
+.footer-modal textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.55);
+  color: #f8fafc;
+}
+
+.footer-modal textarea {
+  resize: vertical;
+}
+
+.footer-modal .actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.dev-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
 }
 
 

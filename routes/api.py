@@ -1,4 +1,6 @@
 from collections import defaultdict
+from datetime import datetime
+import time
 
 from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, render_template_string, request, send_from_directory, session, url_for
 from sqlalchemy import func, or_
@@ -12,7 +14,6 @@ from app import (
     cover_url_for_title,
     get_csrf_token,
     log_action,
-    log_view_event,
     is_postgres,
 )
 
@@ -193,6 +194,8 @@ def book_details(title):
     if not books:
         return jsonify({"error": "Book not found"}), 404
 
+    _increment_view_count(title)
+
     is_admin = bool(session.get("is_admin"))
     grouped_map = build_grouped_book_entries(
         books,
@@ -264,6 +267,43 @@ def book_details(title):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     return response
+
+
+def _increment_view_count(title: str, debounce_seconds: int = 10):
+    title_obj = BookTitle.query.filter_by(title=title).first()
+    if not title_obj:
+        return
+    now_ts = time.time()
+    viewed = session.get("view_debounce", {})
+    last_ts = viewed.get(title)
+    if last_ts and (now_ts - last_ts) <= debounce_seconds:
+        return
+    viewed[title] = now_ts
+    session["view_debounce"] = viewed
+    session.modified = True
+    try:
+        db.session.query(BookTitle).filter_by(id=title_obj.id).update({
+            BookTitle.view_count: BookTitle.view_count + 1,
+            BookTitle.last_viewed_at: datetime.utcnow(),
+        })
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+@api_bp.route("/api/track_view", methods=["POST", "GET"])
+def track_view():
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    if not title:
+        title = (request.form.get("title") or "").strip()
+    if not title:
+        title = (request.args.get("title") or "").strip()
+    if not title:
+        return jsonify({"success": False, "message": "title required"}), 400
+    title = " ".join(title.split())
+    _increment_view_count(title)
+    return jsonify({"success": True})
 
 
 @api_bp.route("/api/title_cabinets/<string:title>")
@@ -507,18 +547,6 @@ def title_cover(title_id):
         "cover_url": cover_url_for_title(title_obj),
         "cover_link": title_obj.cover_link,
     })
-
-
-@api_bp.route("/api/view_event", methods=["POST"])
-def api_view_event():
-    data = request.get_json(silent=True) or {}
-    title = (data.get("title") or "").strip()
-    if not title:
-        return jsonify({"success": False, "message": "title required"}), 400
-    source = (data.get("source") or "").strip() or None
-    actor = session.get("admin_user") or (data.get("actor") or "").strip() or None
-    log_view_event(title, source=source, actor=actor)
-    return jsonify({"success": True})
 
 
 @api_bp.route("/sw.js")

@@ -220,7 +220,30 @@
     if (overlay) overlay.style.display = 'none';
   }
 
+  function openFooterModal(id) {
+    const overlay = document.getElementById(id);
+    if (overlay) overlay.style.display = 'flex';
+  }
+
+  function closeFooterModals() {
+    document.querySelectorAll('.modal-overlay[data-footer-modal]').forEach((el) => {
+      el.style.display = 'none';
+    });
+  }
+
   document.addEventListener('click', (event) => {
+    const footerTrigger = event.target.closest('[data-modal-target]');
+    if (footerTrigger) {
+      event.preventDefault();
+      openFooterModal(footerTrigger.dataset.modalTarget);
+      return;
+    }
+    const footerClose = event.target.closest('[data-close-modal]');
+    if (footerClose) {
+      event.preventDefault();
+      closeFooterModals();
+      return;
+    }
     const booksToggle = event.target.closest('.event-books-toggle');
     if (booksToggle) {
       const banner = booksToggle.closest('.event-banner');
@@ -248,6 +271,11 @@
     if (aboutOverlay && event.target === aboutOverlay) {
       closeAboutModal();
     }
+    document.querySelectorAll('.modal-overlay[data-footer-modal]').forEach((el) => {
+      if (event.target === el) {
+        el.style.display = 'none';
+      }
+    });
   });
 
   // Home page hint actions
@@ -290,6 +318,13 @@
     if (aboutBtn) {
       aboutBtn.addEventListener('click', openAboutModal);
     }
+    document.querySelectorAll('[data-issue-form]').forEach((form) => {
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        closeFooterModals();
+        alert('Report Sent!');
+      });
+    });
   });
 
   let boothMapLoaded = false;
@@ -740,7 +775,6 @@
     meta.className = 'event-meta';
     const metaItems = [];
     if (evt?.location) metaItems.push({ label: '地點', value: evt.location });
-    if (evt?.note) metaItems.push({ label: '備註', value: evt.note });
     metaItems.forEach((item) => {
       const li = document.createElement('li');
       const label = document.createElement('span');
@@ -902,8 +936,10 @@
       const carousel = track.parentElement;
       if (carousel) {
         let startX = 0;
+        let startY = 0;
         let deltaX = 0;
         let dragging = false;
+        let pointerDown = false;
 
         const isInteractiveTarget = (event) => {
           const target = event.target;
@@ -913,28 +949,40 @@
 
         const onPointerDown = (event) => {
           if (isInteractiveTarget(event)) return;
-          dragging = true;
+          pointerDown = true;
+          dragging = false;
           startX = event.clientX;
+          startY = event.clientY;
           deltaX = 0;
-          carousel.classList.add('is-dragging');
-          if (eventRotationTimer) {
-            clearInterval(eventRotationTimer);
-            eventRotationTimer = null;
-          }
-          carousel.setPointerCapture?.(event.pointerId);
         };
 
         const onPointerMove = (event) => {
-          if (!dragging) return;
+          if (!pointerDown) return;
           deltaX = event.clientX - startX;
+          const deltaY = event.clientY - startY;
+          if (!dragging) {
+            if (Math.abs(deltaX) < 6 && Math.abs(deltaY) < 6) return;
+            if (Math.abs(deltaY) > Math.abs(deltaX)) {
+              pointerDown = false;
+              return;
+            }
+            dragging = true;
+            carousel.classList.add('is-dragging');
+            if (eventRotationTimer) {
+              clearInterval(eventRotationTimer);
+              eventRotationTimer = null;
+            }
+            carousel.setPointerCapture?.(event.pointerId);
+          }
           const width = carousel.clientWidth || 1;
           const base = -idx * width;
           track.style.transform = `translateX(${base + deltaX}px)`;
         };
 
         const onPointerUp = () => {
-          if (!dragging) return;
+          if (!pointerDown) return;
           dragging = false;
+          pointerDown = false;
           carousel.classList.remove('is-dragging');
           const width = carousel.clientWidth || 1;
           if (Math.abs(deltaX) > width * 0.2) {

@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
+from sqlalchemy import func
 from werkzeug.security import check_password_hash
 
 from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, BackupArchive, Inventory, AdminUser, db
@@ -143,6 +144,7 @@ def dashboard():
 
     alerts = collect_replenish_alerts()
     replenish_alerts = [alert for alert in alerts if alert.get("type") == "low-stock"]
+    total_views = db.session.query(func.coalesce(func.sum(BookTitle.view_count), 0)).scalar() or 0
 
     all_cabinets = Cabinet.query.order_by(Cabinet.name).all()
     cabinets_payload = [cabinet_to_dict(cab) for cab in all_cabinets]
@@ -160,6 +162,7 @@ def dashboard():
         has_search=has_search,
         authors=authors,
         replenish_alerts=replenish_alerts,
+        total_views=total_views,
     )
 
 

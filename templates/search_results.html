@@ -145,19 +145,6 @@
 {% block extra_js %}
 <script>
   (() => {
-    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const sendView = (title, source) => {
-      if (!title) return;
-      fetch('{{ url_for("api.api_view_event") }}', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrf,
-        },
-        body: JSON.stringify({ title, source }),
-      }).catch(() => {});
-    };
-
     // Auto-focus + scroll: prioritize suggestions when no results, otherwise first result card
     window.requestAnimationFrame(() => {
       // Check if there are exact results
@@ -194,19 +181,19 @@
       }
     });
 
-    document.querySelectorAll('.result-card[data-title]').forEach(card => {
-      card.addEventListener('click', () => {
-        const title = card.dataset.title || '';
-        const source = card.dataset.source || 'search_result';
-        sendView(title, source);
-      });
-    });
+    const trackView = (title) => {
+      if (!title) return;
+      fetch(`/api/track_view?title=${encodeURIComponent(title)}`).catch(() => {});
+    };
 
-    document.querySelectorAll('.result-card.has-cover').forEach(card => {
+    document.querySelectorAll('.result-card[data-title]').forEach(card => {
       card.addEventListener('click', (event) => {
         const isInteractive = event.target.closest('button, a, input, select, textarea');
         if (isInteractive) return;
-        card.classList.toggle('show-status');
+        if (card.classList.contains('has-cover')) {
+          card.classList.toggle('show-status');
+        }
+        trackView(card.dataset.title || '');
       });
     });
   })();

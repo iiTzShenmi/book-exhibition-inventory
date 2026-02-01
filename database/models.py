@@ -21,6 +21,8 @@ class BookTitle(db.Model):
     author = db.Column(db.String(255))
     topics = db.Column(db.Text)  # JSON/text list of topics (prototype support)
     cover_link = db.Column(db.String(255))
+    view_count = db.Column(db.Integer, nullable=False, default=0, index=True)
+    last_viewed_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
