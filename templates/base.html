@@ -67,11 +67,11 @@
               <span class="brand__eyebrow">EXIS v1.0</span>
               <span class="brand__title">展場庫存系統</span>
             </span>
-            <button type="button" class="hero-brand__action" id="hero-quick-guide" aria-label="現場快速導覽">
+            <button type="button" class="hero-brand__action" id="hero-quick-guide" aria-label="現場快速導覽" disabled aria-disabled="true" title="暫時停用" style="display:none;">
               <span class="hero-brand__icon">🔍</span>
               <span>現場快速導覽</span>
             </button>
-            <a class="hero-brand__home" href="{{ url_for('inventory.home') }}" aria-label="回到首頁">🏠</a>
+            <a class="hero-brand__home" href="{{ url_for('inventory.home') }}" aria-label="回到首頁">返回首頁</a>
           </p>
           <div class="hero__search-row">
             <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
@@ -86,26 +86,31 @@
         </div>
       </section>
 
-      <div id="booth-map-overlay" class="modal-overlay" style="display:none;">
-        <div class="modal-box medium booth-map-box">
+      <div id="venue-map-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-box large venue-map-box">
           <div class="booth-map-header">
             <div>
               <p class="eyebrow">現場快速導覽</p>
               <h3>展場地圖</h3>
             </div>
-            <button type="button" class="btn btn--secondary" id="booth-map-close">關閉</button>
+            <button type="button" class="btn btn--secondary" id="venue-map-close">關閉</button>
           </div>
-          <div class="booth-map-body">
-            <div class="booth-map-canvas" id="booth-map-canvas" aria-label="展場櫃位地圖"></div>
-            <div class="booth-map-panel">
-              <p class="eyebrow">櫃位資訊</p>
-              <h4 id="booth-map-title">請點選櫃位</h4>
-              <div id="booth-map-meta" class="muted">點擊左側櫃位查看推薦書籍。</div>
-              <ul id="booth-map-list" class="booth-map-list"></ul>
+          <div class="venue-map-body">
+            <div class="venue-map-canvas" aria-label="展場平面圖">
+              <img src="{{ url_for('static', filename='images/floor_plan_placeholder.png') }}" alt="展場平面圖" class="venue-map-image" />
+              <div class="venue-map-pins" id="venue-map-pins" aria-hidden="true"></div>
+            </div>
+            <div class="venue-map-panel">
+              <p class="eyebrow">Active Zones</p>
+              <h4>櫃位分區</h4>
+              <div id="venue-map-zones" class="venue-map-zones"></div>
             </div>
           </div>
         </div>
       </div>
+      <script>
+        window.ACTIVE_CABINETS = {{ all_cabinets | tojson if all_cabinets is defined else "[]" }};
+      </script>
 
       <div id="realtime-overlay" class="modal-overlay" style="display:none;">
         <div class="modal-box medium realtime-modal">
@@ -296,8 +301,8 @@
               <div class="ticket-icon">1本</div>
               <div class="ticket-main">
                 <span class="promo-label">單本優惠</span>
-                <div class="promo-value">88<small>折</small></div>
-                <span class="promo-sub">買一本即可</span>
+                <div class="promo-value">77<small>折</small></div>
+                <span class="promo-sub">買一本即享</span>
                 <span class="promo-note">現場結帳立享 · 特價品除外</span>
               </div>
             </div>
@@ -312,7 +317,7 @@
               <div class="ticket-icon">3+冊</div>
               <div class="ticket-main">
                 <span class="promo-label">多本優惠</span>
-                <div class="promo-value">85<small>折</small></div>
+                <div class="promo-value">72<small>折</small></div>
                 <span class="promo-sub">買三本以上</span>
                 <span class="promo-note">結帳立享折扣 · 特價品除外</span>
               </div>
@@ -395,11 +400,25 @@
 
       <div class="footer-bottom">
         <span>&copy; 2026 EXIS — EXhibition Inventory System. 版權所有。</span>
-        <div class="footer-meta">
-          <span class="status-dot"></span> 系統運行正常
-        </div>
+        <button type="button" class="footer-meta footer-status-btn" id="footer-status-btn">
+          <span class="status-dot status-dot--warning"></span> 部分功能停用中
+        </button>
       </div>
     </footer>
+
+    <div class="modal-overlay" id="status-modal" data-footer-modal style="display:none;">
+      <div class="modal-box small footer-modal">
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+        <div class="modal-header">
+          <h3>停用功能清單</h3>
+        </div>
+        <div class="modal-body">
+          <ul class="footer-status-list">
+            <li>現場快速導覽（導覽地圖）</li>
+          </ul>
+        </div>
+      </div>
+    </div>
 
     <div class="modal-overlay" id="doc-modal" data-footer-modal style="display:none;">
       <div class="modal-box medium footer-modal">

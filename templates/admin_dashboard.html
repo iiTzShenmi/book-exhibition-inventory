@@ -54,74 +54,6 @@
     </form>
   </div>
 
-  <div class="dashboard-widgets">
-    <div class="widget-card widget-replenish">
-      <div class="widget-header">
-        <h3>🚨 補貨通知</h3>
-        {% if replenish_alerts %}
-        <span class="badge badge--red">{{ replenish_alerts|length }}</span>
-        {% endif %}
-      </div>
-      <div class="widget-body scrollable-list">
-        {% if replenish_alerts %}
-        <ul class="alert-list">
-          {% for alert in replenish_alerts[:5] %}
-          <li class="alert-item">
-            <span class="icon">📦</span>
-            <span class="text">{{ alert.message }}</span>
-          </li>
-          {% endfor %}
-        </ul>
-        {% if replenish_alerts|length > 5 %}
-        <div class="more-link">還有 {{ replenish_alerts|length - 5 }} 項...</div>
-        {% endif %}
-        {% else %}
-        <div class="empty-state-mini">
-          <span>✨</span>
-          目前無需補貨
-        </div>
-        {% endif %}
-      </div>
-    </div>
-
-    <div class="widget-card widget-views">
-      <div class="widget-header">
-        <h3>👀 熱門點閱</h3>
-      </div>
-      <div class="widget-body">
-        <div class="stat-line">
-          <span class="stat-label">Total Views</span>
-          <span class="stat-value">{{ total_views }}</span>
-        </div>
-        <p class="muted" style="margin:10px 0 0;">近期最受關注的書籍可優先補貨。</p>
-      </div>
-    </div>
-
-    <div class="widget-card widget-actions">
-      <div class="widget-header">
-        <h3>⚡ 快速操作</h3>
-      </div>
-      <div class="widget-body action-grid">
-        <button type="button" class="action-tile" onclick="handleAddBook()">
-          <span class="tile-icon">📖</span>
-          <span class="tile-label">新增書籍</span>
-        </button>
-        <button type="button" class="action-tile" onclick="handleCabinetManager()">
-          <span class="tile-icon">🗄️</span>
-          <span class="tile-label">櫃位管理</span>
-        </button>
-        <button type="button" class="action-tile" onclick="location.href='{{ url_for('admin.system_page') }}'">
-          <span class="tile-icon">📝</span>
-          <span class="tile-label">操作紀錄</span>
-        </button>
-        <button type="button" class="action-tile secondary" onclick="location.href='{{ url_for('admin.system_page') }}'">
-          <span class="tile-icon">💾</span>
-          <span class="tile-label">資料備份</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
   {% if has_search %}
   <div class="grid admin-grid">
     {% for title, entries in grouped_books.items() %}
@@ -170,6 +102,53 @@
     {% endfor %}
   </div>
   {% endif %}
+  
+  <div class="dashboard-widgets">
+    <div class="widget-card widget-views">
+      <div class="widget-header">
+        <h3>👀 熱門點閱</h3>
+      </div>
+      <div class="widget-body">
+        {% if top_viewed_books %}
+        <ol class="widget-list">
+          {% for book in top_viewed_books %}
+          <li>
+            <span class="widget-title">{{ book.title }}</span>
+            <span class="widget-value">{{ book.view_count }}</span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted">目前尚無點閱記錄。</p>
+        {% endif %}
+        <p class="muted" style="margin:10px 0 0;">近期最受關注的書籍可優先補貨。</p>
+      </div>
+    </div>
+
+    <div class="widget-card widget-actions">
+      <div class="widget-header">
+        <h3>⚡ 快速操作</h3>
+      </div>
+      <div class="widget-body action-grid">
+        <button type="button" class="action-tile" onclick="handleAddBook()">
+          <span class="tile-icon">📖</span>
+          <span class="tile-label">新增書籍</span>
+        </button>
+        <button type="button" class="action-tile" onclick="handleCabinetManager()">
+          <span class="tile-icon">🗄️</span>
+          <span class="tile-label">櫃位管理</span>
+        </button>
+        <button type="button" class="action-tile" onclick="location.href='{{ url_for('admin.system_page') }}'">
+          <span class="tile-icon">📝</span>
+          <span class="tile-label">操作紀錄</span>
+        </button>
+        <button type="button" class="action-tile secondary" onclick="location.href='{{ url_for('admin.system_page') }}'">
+          <span class="tile-icon">💾</span>
+          <span class="tile-label">資料備份</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <div id="book-modal-overlay" class="modal-overlay" style="display:none;">
     <div id="book-modal-box" class="modal-box medium"></div>

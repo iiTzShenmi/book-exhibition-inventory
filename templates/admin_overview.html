@@ -50,7 +50,7 @@
     {% if alerts %}
     <ul class="attention-list">
       {% for item in alerts[:8] %}
-      <li>{{ item.message }}</li>
+      <li class="attention-item attention-item--{{ item.type|default('info') }}">{{ item.message }}</li>
       {% endfor %}
     </ul>
     {% else %}

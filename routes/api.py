@@ -10,6 +10,7 @@ from similarity import BookProfile, suggest_for_missing_title, parse_topics_fiel
 from app import (
     active_books_query,
     build_grouped_book_entries,
+    cabinet_to_dict,
     collect_replenish_alerts,
     cover_url_for_title,
     get_csrf_token,
@@ -177,6 +178,9 @@ def search():
         import traceback
         traceback.print_exc()
 
+    all_cabinets = Cabinet.query.order_by(Cabinet.name.asc()).all()
+    all_cabinets_data = [cabinet_to_dict(cabinet) for cabinet in all_cabinets]
+
     return render_template(
         "search_results.html",
         grouped_books=grouped_books,
@@ -185,6 +189,7 @@ def search():
         covers=covers,
         authors=authors,
         suggestions=suggestions,
+        all_cabinets=all_cabinets_data,
     )
 
 

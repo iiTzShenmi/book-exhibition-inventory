@@ -43,6 +43,8 @@ def home():
         .order_by(EventSchedule.display_order.asc(), EventSchedule.updated_at.desc())
         .all()
     )
+    all_cabinets = Cabinet.query.order_by(Cabinet.name.asc()).all()
+    all_cabinets_data = [cabinet_to_dict(cabinet) for cabinet in all_cabinets]
     return render_template(
         "home.html",
         title="書展庫存系統",
@@ -50,6 +52,7 @@ def home():
         top_sellers=top_books_data,
         random_picks=random_picks_data,
         events=events,
+        all_cabinets=all_cabinets_data,
     )
 
 

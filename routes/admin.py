@@ -144,7 +144,14 @@ def dashboard():
 
     alerts = collect_replenish_alerts()
     replenish_alerts = [alert for alert in alerts if alert.get("type") == "low-stock"]
-    total_views = db.session.query(func.coalesce(func.sum(BookTitle.view_count), 0)).scalar() or 0
+    top_viewed_books = (
+        BookTitle.query
+        .filter(BookTitle.view_count.isnot(None))
+        .filter(BookTitle.view_count > 0)
+        .order_by(BookTitle.view_count.desc(), BookTitle.title.asc())
+        .limit(10)
+        .all()
+    )
 
     all_cabinets = Cabinet.query.order_by(Cabinet.name).all()
     cabinets_payload = [cabinet_to_dict(cab) for cab in all_cabinets]
@@ -162,7 +169,7 @@ def dashboard():
         has_search=has_search,
         authors=authors,
         replenish_alerts=replenish_alerts,
-        total_views=total_views,
+        top_viewed_books=top_viewed_books,
     )
 
 

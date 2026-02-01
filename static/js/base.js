@@ -282,13 +282,13 @@
   document.addEventListener('DOMContentLoaded', () => {
     const focusBtn = document.getElementById('hint-focus-search');
     const input = document.querySelector('.customer-search input[name="q"]');
-    const mapOverlay = document.getElementById('booth-map-overlay');
+    const mapOverlay = document.getElementById('venue-map-modal');
     const quickGuideBtn = document.getElementById('hero-quick-guide');
     const aboutBtn = document.getElementById('about-btn');
     if (focusBtn) {
       focusBtn.addEventListener('click', () => {
         if (mapOverlay) {
-          openBoothMap();
+          openVenueMap();
         } else if (input) {
           input.focus();
           input.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -304,7 +304,7 @@
     if (quickGuideBtn) {
       quickGuideBtn.addEventListener('click', () => {
         if (mapOverlay) {
-          openBoothMap();
+          openVenueMap();
         } else if (input) {
           input.focus();
           input.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -318,147 +318,181 @@
     if (aboutBtn) {
       aboutBtn.addEventListener('click', openAboutModal);
     }
-    document.querySelectorAll('[data-issue-form]').forEach((form) => {
-      form.addEventListener('submit', (event) => {
-        event.preventDefault();
-        closeFooterModals();
-        alert('Report Sent!');
-      });
+  document.querySelectorAll('[data-issue-form]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      closeFooterModals();
+      alert('Report Sent!');
     });
   });
-
-  let boothMapLoaded = false;
-  let boothMapCabinets = [];
-
-  function buildBoothMapSvg(cabinets) {
-    const cols = 3;
-    const cellW = 120;
-    const cellH = 70;
-    const gap = 16;
-    const rows = Math.max(1, Math.ceil(cabinets.length / cols));
-    const width = cols * cellW + (cols + 1) * gap;
-    const height = rows * cellH + (rows + 1) * gap;
-
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    svg.setAttribute('class', 'booth-map-svg');
-
-    const source = cabinets.length ? cabinets : [{ id: 0, name: 'Cabinet A' }, { id: 1, name: 'Cabinet B' }];
-    source.forEach((cab, idx) => {
-      const col = idx % cols;
-      const row = Math.floor(idx / cols);
-      const x = gap + col * (cellW + gap);
-      const y = gap + row * (cellH + gap);
-
-      const rect = document.createElementNS(ns, 'rect');
-      rect.setAttribute('x', x);
-      rect.setAttribute('y', y);
-      rect.setAttribute('rx', 12);
-      rect.setAttribute('ry', 12);
-      rect.setAttribute('width', cellW);
-      rect.setAttribute('height', cellH);
-      rect.setAttribute('fill', '#eef3ff');
-      rect.setAttribute('stroke', '#cbd8ff');
-      rect.setAttribute('class', 'booth-map-seat');
-      rect.dataset.cabinetId = cab.id;
-
-      const text = document.createElementNS(ns, 'text');
-      text.setAttribute('x', x + cellW / 2);
-      text.setAttribute('y', y + cellH / 2 + 5);
-      text.setAttribute('text-anchor', 'middle');
-      text.setAttribute('fill', '#2b3a55');
-      text.setAttribute('font-size', '14');
-      text.setAttribute('font-weight', '700');
-      text.textContent = cab.name;
-
-      svg.appendChild(rect);
-      svg.appendChild(text);
+  const footerStatusBtn = document.getElementById('footer-status-btn');
+  if (footerStatusBtn) {
+    footerStatusBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      const statusModal = document.getElementById('status-modal');
+      if (statusModal) statusModal.style.display = 'flex';
     });
+  }
+});
 
-    return svg;
+  let venueMapReady = false;
+  const zonePinPositions = {
+    管理: { left: '46%', top: '26%' },
+    動志: { left: '66%', top: '24%' },
+    '親子+文學': { left: '66%', top: '30%' },
+    新書: { left: '31%', top: '42%' },
+    商業: { left: '47%', top: '48%' },
+    科普: { left: '63%', top: '48%' },
+    健康: { left: '63%', top: '58%' },
+    工作: { left: '46%', top: '74%' },
+    社文: { left: '63%', top: '74%' },
+    暢銷: { left: '80%', top: '42%' },
+  };
+
+  function normalizeCabinetName(name) {
+    return (name || '')
+      .toString()
+      .trim()
+      .replace(/\s+/g, '')
+      .replace(/＋/g, '+');
   }
 
-  async function loadBoothMap() {
-    const canvas = document.getElementById('booth-map-canvas');
-    if (!canvas) return;
-    canvas.innerHTML = '<div class="muted">載入櫃位中...</div>';
-    try {
-      const res = await fetch('/api/cabinets', { cache: 'no-store' });
-      const data = await res.json();
-      boothMapCabinets = data.cabinets || [];
-      canvas.innerHTML = '';
-      canvas.appendChild(buildBoothMapSvg(boothMapCabinets));
-      boothMapLoaded = true;
-    } catch (err) {
-      console.error(err);
-      canvas.innerHTML = '<div class="muted">無法載入櫃位資料</div>';
+  function getZoneKey(name) {
+    const normalized = normalizeCabinetName(name);
+    const match = normalized.match(/^([^\d]+)\d+/);
+    if (match) return match[1];
+    const alphaMatch = normalized.match(/^([A-Za-z]+)\d*/);
+    if (alphaMatch) return alphaMatch[1];
+    return normalized || '未分類';
+  }
+
+  function formatZoneTitle(zoneKey) {
+    if (/^[A-Za-z]+$/.test(zoneKey)) {
+      return `Zone ${zoneKey}`;
     }
+    return zoneKey;
   }
 
-  async function showCabinetDetails(cabinetId) {
-    const titleEl = document.getElementById('booth-map-title');
-    const metaEl = document.getElementById('booth-map-meta');
-    const listEl = document.getElementById('booth-map-list');
-    if (!titleEl || !metaEl || !listEl) return;
-    titleEl.textContent = '載入中...';
-    metaEl.textContent = '';
-    listEl.innerHTML = '';
-
-    try {
-      const res = await fetch(`/api/cabinets/${cabinetId}/featured`, { cache: 'no-store' });
-      const data = await res.json();
-      if (!data.success) throw new Error('failed');
-      titleEl.textContent = data.cabinet?.name || '櫃位';
-      metaEl.textContent = data.cabinet?.type === 'reserve' ? '備書櫃' : '展示櫃';
-      const titles = data.titles || [];
-      if (!titles.length) {
-        listEl.innerHTML = '<li>目前沒有書籍</li>';
-        return;
+  function buildVenueZones(cabinets) {
+    const zones = new Map();
+    cabinets.forEach((cab) => {
+      const zoneKey = getZoneKey(cab.name);
+      if (!zones.has(zoneKey)) {
+        zones.set(zoneKey, []);
       }
-      titles.forEach((name) => {
-        const li = document.createElement('li');
-        li.textContent = name;
-        listEl.appendChild(li);
-      });
-    } catch (err) {
-      console.error(err);
-      titleEl.textContent = '載入失敗';
-      metaEl.textContent = '請稍後再試';
-    }
+      zones.get(zoneKey).push(cab.name);
+    });
+    return Array.from(zones.entries()).map(([key, names]) => ({
+      key,
+      title: formatZoneTitle(key),
+      cabinets: names,
+    }));
   }
 
-  function openBoothMap() {
-    const overlay = document.getElementById('booth-map-overlay');
+  function renderVenueZones(zones) {
+    const container = document.getElementById('venue-map-zones');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!zones.length) {
+      container.innerHTML = '<div class="muted">目前沒有可用櫃位。</div>';
+      return;
+    }
+    zones.forEach((zone) => {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'venue-zone-card';
+      card.dataset.zone = zone.key;
+      const subtitle = zone.cabinets.join('、');
+      card.innerHTML = `<strong>${zone.title}</strong><span>包含：${subtitle}</span>`;
+      container.appendChild(card);
+    });
+  }
+
+  function renderVenuePins(zones) {
+    const pins = document.getElementById('venue-map-pins');
+    if (!pins) return;
+    pins.innerHTML = '';
+    zones.forEach((zone, idx) => {
+      const pin = document.createElement('div');
+      pin.className = 'venue-map-pin';
+      pin.dataset.zone = zone.key;
+      const position = zonePinPositions[zone.key];
+      if (position) {
+        pin.style.left = position.left;
+        pin.style.top = position.top;
+      } else {
+        const row = Math.floor(idx / 4);
+        const col = idx % 4;
+        pin.style.left = `${18 + col * 18}%`;
+        pin.style.top = `${82 + row * 8}%`;
+      }
+      pin.textContent = zone.title;
+      pins.appendChild(pin);
+    });
+  }
+
+  function initVenueMap() {
+    const cabinets = Array.isArray(window.ACTIVE_CABINETS) ? window.ACTIVE_CABINETS : [];
+    const zones = buildVenueZones(cabinets);
+    renderVenueZones(zones);
+    renderVenuePins(zones);
+  }
+
+  function openVenueMap() {
+    const overlay = document.getElementById('venue-map-modal');
     if (!overlay) return;
     overlay.style.display = 'flex';
-    if (!boothMapLoaded) {
-      loadBoothMap();
+    if (!venueMapReady) {
+      initVenueMap();
+      venueMapReady = true;
     }
   }
 
-  function closeBoothMap() {
-    const overlay = document.getElementById('booth-map-overlay');
+  function closeVenueMap() {
+    const overlay = document.getElementById('venue-map-modal');
     if (overlay) overlay.style.display = 'none';
   }
 
   document.addEventListener('click', (event) => {
-    const closeBtn = event.target.closest('#booth-map-close');
+    const closeBtn = event.target.closest('#venue-map-close');
     if (closeBtn) {
-      closeBoothMap();
+      closeVenueMap();
       return;
     }
-    const seat = event.target.closest('.booth-map-seat');
-    if (seat) {
-      document.querySelectorAll('.booth-map-seat').forEach((node) => node.classList.remove('booth-map-seat--active'));
-      seat.classList.add('booth-map-seat--active');
-      const cabinetId = seat.dataset.cabinetId;
-      if (cabinetId) showCabinetDetails(cabinetId);
-    }
-    const overlay = document.getElementById('booth-map-overlay');
+    const overlay = document.getElementById('venue-map-modal');
     if (overlay && event.target === overlay) {
-      closeBoothMap();
+      closeVenueMap();
     }
+  });
+
+  document.addEventListener('mouseover', (event) => {
+    const card = event.target.closest('.venue-zone-card');
+    if (!card) return;
+    const zoneKey = card.dataset.zone;
+    document.querySelectorAll('.venue-zone-card').forEach((el) => el.classList.remove('is-active'));
+    document.querySelectorAll('.venue-map-pin').forEach((el) => el.classList.remove('highlight-zone'));
+    card.classList.add('is-active');
+    const pin = document.querySelector(`.venue-map-pin[data-zone="${zoneKey}"]`);
+    if (pin) pin.classList.add('highlight-zone');
+  });
+
+  document.addEventListener('click', (event) => {
+    const card = event.target.closest('.venue-zone-card');
+    if (!card) return;
+    const zoneKey = card.dataset.zone;
+    document.querySelectorAll('.venue-zone-card').forEach((el) => el.classList.remove('is-active'));
+    document.querySelectorAll('.venue-map-pin').forEach((el) => el.classList.remove('highlight-zone'));
+    card.classList.add('is-active');
+    const pin = document.querySelector(`.venue-map-pin[data-zone="${zoneKey}"]`);
+    if (pin) pin.classList.add('highlight-zone');
+  });
+
+  document.addEventListener('mouseout', (event) => {
+    const zonePanel = event.target.closest('#venue-map-zones');
+    if (!zonePanel) return;
+    if (zonePanel.contains(event.relatedTarget)) return;
+    document.querySelectorAll('.venue-zone-card').forEach((el) => el.classList.remove('is-active'));
+    document.querySelectorAll('.venue-map-pin').forEach((el) => el.classList.remove('highlight-zone'));
   });
 
   let realtimeTimer = null;

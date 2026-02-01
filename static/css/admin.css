@@ -358,6 +358,28 @@
   margin: 0;
 }
 
+.attention-item {
+  list-style: none;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.attention-item--low-stock,
+.attention-item--info {
+  background: #fff4cf;
+  border-color: #ffd980;
+  color: #7a4b00;
+}
+
+.attention-item--critical,
+.attention-item--out-of-stock {
+  background: #ffe5e7;
+  border-color: #ffb3bb;
+  color: #8a1c1c;
+}
+
 .system-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1004,6 +1026,35 @@
 .admin-board .grid { margin-top: 12px; }
 .admin-grid { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .admin-actions { margin-bottom: 12px; }
+.admin-board .dashboard-widgets { margin-top: 16px; }
+
+.widget-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.widget-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.widget-title {
+  font-weight: 600;
+}
+
+.widget-value {
+  font-weight: 700;
+  color: var(--primary);
+}
 
 /* Cabinet manager */
 .cabinet-manager__row {

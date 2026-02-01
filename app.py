@@ -17,7 +17,7 @@ import redis
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from tools import env_loader  # loads .env into os.environ
-from database.models import db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
+from database.models import TopSellerSnapshot, db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
 from database.models import EventSchedule, BackupArchive, event_books
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
@@ -1142,6 +1142,22 @@ def collect_replenish_alerts():
             "message": f"《{row.title}》展示缺貨，可從備書補貨",
         })
 
+    # 1b) Display out-of-stock with no reserve stock (fully empty).
+    fully_out_results = (
+        db.session.query(BookTitle.title)
+        .filter(BookTitle.id.in_(display_out_titles_sub))
+        .filter(~BookTitle.id.in_(reserve_in_titles_sub))
+        .distinct()
+        .limit(20)
+        .all()
+    )
+
+    for row in fully_out_results:
+        alerts.append({
+            "type": "out-of-stock",
+            "message": f"❌《{row.title}》展示缺貨且備書也無庫存",
+        })
+
     # 2) Titles that exist in reserve cabinets but not in display cabinets.
     display_titles_sub = (
         db.session.query(Inventory.title_id)
@@ -1166,7 +1182,7 @@ def collect_replenish_alerts():
     for row in reserve_only_results:
         alerts.append({
             "type": "info",
-            "message": f"《{row.title}》僅存在備書櫃，未展示"
+            "message": f"➡️《{row.title}》僅存在備書櫃，未展示"
         })
 
     # 3) Empty cabinets (no active inventory).
@@ -1183,7 +1199,7 @@ def collect_replenish_alerts():
     for row in empty_cabs:
         alerts.append({
             "type": "info",
-            "message": f"櫃位「{row.name}」目前沒有書籍"
+            "message": f"➡️櫃位「{row.name}」目前沒有書籍"
         })
 
     return alerts
