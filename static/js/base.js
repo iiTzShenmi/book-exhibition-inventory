@@ -773,6 +773,65 @@
     const banner = document.createElement('section');
     banner.className = 'event-banner';
 
+    const parseDateOnly = (value) => {
+      if (!value) return null;
+      const parts = String(value).split('-').map(Number);
+      if (parts.length < 3) return null;
+      const [year, month, day] = parts;
+      if (!year || !month || !day) return null;
+      return new Date(year, month - 1, day);
+    };
+
+    const formatDate = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}/${m}/${d}`;
+    };
+
+    const formatDateRange = (start, end) => {
+      if (!start && !end) return '';
+      if (start && !end) return formatDate(start);
+      if (!start && end) return formatDate(end);
+      if (start.getTime() === end.getTime()) return formatDate(start);
+      return `${formatDate(start)} - ${formatDate(end)}`;
+    };
+
+    const parseTimeRange = (text) => {
+      if (!text) return null;
+      const matches = String(text).match(/(\d{1,2}):(\d{2})/g);
+      if (!matches || matches.length < 2) return null;
+      const toMinutes = (val) => {
+        const [h, m] = val.split(':').map(Number);
+        return h * 60 + m;
+      };
+      return { start: toMinutes(matches[0]), end: toMinutes(matches[1]) };
+    };
+
+    const isEventActive = (eventData) => {
+      const now = new Date();
+      const dateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startDate = parseDateOnly(eventData?.date_start);
+      const endDate = parseDateOnly(eventData?.date_end) || startDate;
+      if (startDate || endDate) {
+        if (startDate && dateOnly < startDate) return false;
+        if (endDate && dateOnly > endDate) return false;
+      } else {
+        return false;
+      }
+      const range = parseTimeRange(eventData?.time_text);
+      if (!range) return true;
+      const nowMinutes = now.getHours() * 60 + now.getMinutes();
+      if (range.end < range.start) {
+        return nowMinutes >= range.start || nowMinutes <= range.end;
+      }
+      return nowMinutes >= range.start && nowMinutes <= range.end;
+    };
+
+    if (isEventActive(evt)) {
+      banner.classList.add('event-banner--active');
+    }
+
     const content = document.createElement('div');
     content.className = 'event-banner__content';
 
@@ -791,6 +850,19 @@
     time.appendChild(document.createTextNode(evt?.time_text || ''));
     if (!time.textContent) {
       time.style.display = 'none';
+    }
+    const dateStart = parseDateOnly(evt?.date_start);
+    const dateEnd = parseDateOnly(evt?.date_end);
+    const dateText = formatDateRange(dateStart, dateEnd);
+    if (dateText) {
+      const dateRow = document.createElement('div');
+      dateRow.className = 'event-date';
+      const dateLabel = document.createElement('span');
+      dateLabel.className = 'event-label';
+      dateLabel.textContent = '日期';
+      dateRow.appendChild(dateLabel);
+      dateRow.appendChild(document.createTextNode(dateText));
+      content.appendChild(dateRow);
     }
     content.appendChild(time);
 

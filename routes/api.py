@@ -485,6 +485,8 @@ def get_events():
         {
             "id": evt.id,
             "title": evt.title,
+            "date_start": evt.date_start.isoformat() if evt.date_start else None,
+            "date_end": evt.date_end.isoformat() if evt.date_end else None,
             "time_text": evt.time_text,
             "description": evt.description,
             "location": evt.location,

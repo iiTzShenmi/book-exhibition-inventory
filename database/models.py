@@ -183,6 +183,8 @@ class EventSchedule(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(255), nullable=False)
+    date_start = db.Column(db.Date, nullable=True)
+    date_end = db.Column(db.Date, nullable=True)
     time_text = db.Column(db.String(120), nullable=False)
     description = db.Column(db.String(255))
     location = db.Column(db.String(120))

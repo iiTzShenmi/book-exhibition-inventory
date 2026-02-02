@@ -592,6 +592,15 @@ textarea:focus {
   width: fit-content;
 }
 
+.event-date {
+  font-weight: 700;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+}
+
 .event-desc {
   margin: 0;
   color: var(--muted);
@@ -644,6 +653,7 @@ textarea:focus {
 }
 
 .event-time,
+.event-date,
 .event-desc,
 .event-meta li {
   background: rgba(255, 255, 255, 0.75);
@@ -653,6 +663,16 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.event-banner--active {
+  box-shadow: 0 20px 40px rgba(250, 204, 21, 0.22);
+  border-color: rgba(250, 204, 21, 0.35);
+}
+
+.event-banner--active::after {
+  background: radial-gradient(circle at 20% 20%, rgba(250, 204, 21, 0.25), transparent 60%);
+  opacity: 1;
 }
 
 .event-banner__visuals {

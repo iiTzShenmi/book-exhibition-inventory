@@ -885,15 +885,23 @@ def admin_events():
 
     if request.method == "POST":
         title = (request.form.get("title") or "").strip()
+        date_start_raw = (request.form.get("date_start") or "").strip()
+        date_end_raw = (request.form.get("date_end") or "").strip()
         time_text = (request.form.get("time_text") or "").strip()
         description = (request.form.get("description") or "").strip()
         location = (request.form.get("location") or "").strip()
         note = (request.form.get("note") or "").strip()
         is_active = request.form.get("is_active") == "on"
         book_ids = _parse_book_ids(request.form.get("book_ids", ""))
+        date_start = datetime.strptime(date_start_raw, "%Y-%m-%d").date() if date_start_raw else None
+        date_end = datetime.strptime(date_end_raw, "%Y-%m-%d").date() if date_end_raw else None
+        if date_start and not date_end:
+            date_end = date_start
         if title and time_text and description:
             evt = EventSchedule(
                 title=title,
+                date_start=date_start,
+                date_end=date_end,
                 time_text=time_text,
                 description=description or None,
                 location=location or None,
@@ -922,14 +930,22 @@ def update_event(event_id):
         return redirect(url_for("auth.login"))
     event = EventSchedule.query.get_or_404(event_id)
     title = (request.form.get("title") or "").strip()
+    date_start_raw = (request.form.get("date_start") or "").strip()
+    date_end_raw = (request.form.get("date_end") or "").strip()
     time_text = (request.form.get("time_text") or "").strip()
     description = (request.form.get("description") or "").strip()
     location = (request.form.get("location") or "").strip()
     note = (request.form.get("note") or "").strip()
     is_active = request.form.get("is_active") == "on"
     book_ids = _parse_book_ids(request.form.get("book_ids", ""))
+    date_start = datetime.strptime(date_start_raw, "%Y-%m-%d").date() if date_start_raw else None
+    date_end = datetime.strptime(date_end_raw, "%Y-%m-%d").date() if date_end_raw else None
+    if date_start and not date_end:
+        date_end = date_start
     if title and time_text and description:
         event.title = title
+        event.date_start = date_start
+        event.date_end = date_end
         event.time_text = time_text
         event.description = description
         event.location = location or None

@@ -109,17 +109,51 @@ def modify_cabinet(title):
         return jsonify({"success": False, "message": "無法建立或取得書名"})
 
     if action == "add":
-        existing = active_books_query().filter_by(title_id=title_obj.id, cabinet_id=cabinet.id).first()
+        existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet.id).first()
         book_id = None
         if existing:
             book_id = existing.id
+            if existing.status != "active" or existing.deleted_at:
+                existing.status = "active"
+                existing.deleted_at = None
+                if existing.in_stock is None:
+                    existing.in_stock = True
+                log_action("restore_cabinet_for_title", target=title, details=f"cabinet={cab_name}")
+            else:
+                return jsonify({
+                    "success": True,
+                    "message": f"《{title}》 已存在於 {cab_name}",
+                    "action": "add",
+                    "book_id": book_id,
+                    "cabinet_id": cabinet.id,
+                    "cabinet_name": cab_name,
+                    "title": title,
+                    "qty_change": 0,
+                })
         else:
             if not title_obj.id or not cabinet.id:
                 return jsonify({"success": False, "message": "無效的書名ID或櫃位ID"})
             new_book = Book(title_id=title_obj.id, cabinet_id=cabinet.id)
             db.session.add(new_book)
-            db.session.flush()
-            book_id = new_book.id
+            try:
+                db.session.flush()
+                book_id = new_book.id
+            except IntegrityError:
+                db.session.rollback()
+                existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet.id).first()
+                if existing:
+                    book_id = existing.id
+                    return jsonify({
+                        "success": True,
+                        "message": f"《{title}》 已存在於 {cab_name}",
+                        "action": "add",
+                        "book_id": book_id,
+                        "cabinet_id": cabinet.id,
+                        "cabinet_name": cab_name,
+                        "title": title,
+                        "qty_change": 0,
+                    })
+                return jsonify({"success": False, "message": "新增失敗，請再試一次"}), 500
         log_action("add_cabinet_to_title", target=title, details=f"cabinet={cab_name}")
         db.session.commit()
         return jsonify({

@@ -545,20 +545,50 @@ def ensure_book_title_view_columns():
                     alter_conn.execute(text("ALTER TABLE book_title ADD COLUMN last_viewed_at TIMESTAMP NULL"))
         except Exception as e:
             print(f"[migration] Error ensuring book_title view columns: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
-        return
+    else:
+        try:
+            with db.engine.connect() as conn:
+                result = conn.execute(text("PRAGMA table_info(book_title)"))
+                columns = [row[1] for row in result]
+            with db.engine.begin() as conn:
+                if "view_count" not in columns:
+                    conn.execute(text("ALTER TABLE book_title ADD COLUMN view_count INTEGER DEFAULT 0 NOT NULL"))
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_book_title_view_count ON book_title (view_count)"))
+                if "last_viewed_at" not in columns:
+                    conn.execute(text("ALTER TABLE book_title ADD COLUMN last_viewed_at DATETIME NULL"))
+        except Exception as e:
+            print(f"[migration] Error ensuring book_title view columns (sqlite): {e}")
 
-    with db.engine.connect() as conn:
-        result = conn.execute(text("PRAGMA table_info(book_title)"))
-        columns = [row[1] for row in result]
-    with db.engine.begin() as conn:
-        if "view_count" not in columns:
-            conn.execute(text("ALTER TABLE book_title ADD COLUMN view_count INTEGER DEFAULT 0 NOT NULL"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_book_title_view_count ON book_title (view_count)"))
-        if "last_viewed_at" not in columns:
-            conn.execute(text("ALTER TABLE book_title ADD COLUMN last_viewed_at DATETIME NULL"))
+def ensure_event_date_columns():
+    """Ensure event_schedule has date_start/date_end columns."""
+    try:
+        inspector = db.inspect(db.engine)
+        if "event_schedule" not in inspector.get_table_names():
+            return
+        existing = {col["name"] for col in inspector.get_columns("event_schedule")}
+        to_add = []
+        if "date_start" not in existing:
+            to_add.append("date_start")
+        if "date_end" not in existing:
+            to_add.append("date_end")
+        if not to_add:
+            return
+
+        if is_postgres():
+            with db.engine.begin() as conn:
+                for col in to_add:
+                    conn.execute(db.text(f"ALTER TABLE event_schedule ADD COLUMN {col} DATE"))
+            print(f"[migration] Added event_schedule columns: {', '.join(to_add)}")
+        else:
+            conn = db.engine.raw_connection()
+            cur = conn.cursor()
+            for col in to_add:
+                cur.execute(f"ALTER TABLE event_schedule ADD COLUMN {col} DATE")
+            conn.commit()
+            conn.close()
+            print(f"[migration] Added event_schedule columns (sqlite): {', '.join(to_add)}")
+    except Exception as e:
+        print(f"[migration] Error ensuring event_schedule date columns: {e}")
 
 def ensure_inventory_in_stock_column():
     """Ensure Inventory table has an in_stock column for toggle functionality."""
@@ -851,6 +881,7 @@ def initialize_app():
         ensure_default_admin()
         ensure_title_cover_column()
         ensure_book_title_view_columns()
+        ensure_event_date_columns()
         ensure_cabinet_type_column()
         ensure_inventory_in_stock_column()
         ensure_inventory_status_columns()
@@ -872,6 +903,7 @@ if skip_init and skip_init not in ("0", "false", "no"):
         ensure_inventory_in_stock_column()
         ensure_inventory_status_columns()
         ensure_book_title_view_columns()
+        ensure_event_date_columns()
         ensure_pg_search_indexes()
 else:
     initialize_app()
@@ -1214,6 +1246,7 @@ def ensure_schema_migrations():
                 ensure_inventory_in_stock_column()
                 ensure_inventory_status_columns()
                 ensure_pg_search_indexes()
+                ensure_event_date_columns()
                 inspector = db.inspect(db.engine)
                 if "top_seller_snapshot" not in inspector.get_table_names():
                     TopSellerSnapshot.__table__.create(db.engine)

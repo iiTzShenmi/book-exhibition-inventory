@@ -26,6 +26,14 @@
           <span>標題</span>
           <input type="text" name="title" placeholder="作者快閃分享" required>
         </label>
+        <label class="event-field event-field--date">
+          <span>日期</span>
+          <div class="event-date-range">
+            <input type="date" name="date_start">
+            <span class="time-sep">→</span>
+            <input type="date" name="date_end">
+          </div>
+        </label>
         <label class="event-field event-field--time">
           <span>時間</span>
           <div class="event-time-range">
@@ -85,6 +93,14 @@
           <label class="event-field">
             <span>標題</span>
             <input type="text" name="title" value="{{ event.title }}" required>
+          </label>
+          <label class="event-field event-field--date">
+            <span>日期</span>
+            <div class="event-date-range">
+              <input type="date" name="date_start" value="{{ event.date_start.strftime('%Y-%m-%d') if event.date_start else '' }}">
+              <span class="time-sep">→</span>
+              <input type="date" name="date_end" value="{{ event.date_end.strftime('%Y-%m-%d') if event.date_end else '' }}">
+            </div>
           </label>
           <label class="event-field event-field--time">
             <span>時間</span>

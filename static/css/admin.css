@@ -416,6 +416,10 @@
   justify-items: start;
 }
 
+.admin-audit-card.is-collapsed {
+  height: auto;
+}
+
 .admin-backup-card:hover,
 .admin-upload-card:hover,
 .admin-audit-card:hover {
@@ -1397,6 +1401,23 @@
   background: #fff;
 }
 
+.event-date-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.event-date-range input[type="date"] {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(229, 232, 239, 0.9);
+  background: #fff;
+}
+
 .event-time-range .time-sep {
   color: var(--muted);
   font-weight: 600;
@@ -1406,8 +1427,15 @@
   grid-column: span 2;
 }
 
+.event-field--date {
+  grid-column: span 2;
+}
+
 @media (max-width: 900px) {
   .event-field--time {
+    grid-column: 1 / -1;
+  }
+  .event-field--date {
     grid-column: 1 / -1;
   }
 }
@@ -1417,7 +1445,14 @@
     grid-template-columns: 1fr;
   }
 
+  .event-date-range {
+    grid-template-columns: 1fr;
+  }
+
   .event-time-range .time-sep {
+    display: none;
+  }
+  .event-date-range .time-sep {
     display: none;
   }
 }
