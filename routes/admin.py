@@ -4,6 +4,7 @@ import json
 import os
 import re
 import secrets
+import difflib
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -12,6 +13,7 @@ from sqlalchemy import func
 from werkzeug.security import check_password_hash
 
 from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, BackupArchive, Inventory, AdminUser, db
+from similarity import parse_topics_field
 from app import (
     active_books_query,
     build_grouped_book_entries,
@@ -93,6 +95,81 @@ def _normalize_title_for_compare(text: str) -> str:
     cleaned = cleaned.replace("-", " ").replace("_", " ")
     cleaned = re.sub(r"\\s+", " ", cleaned).strip()
     return cleaned
+
+
+@admin_bp.route("/admin/add_book_preview", methods=["POST"])
+def add_book_preview():
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "未登入"}), 401
+
+    title = (request.form.get("title") or "").strip()
+    cabinet_id = request.form.get("cabinet_id", type=int)
+    if not title:
+        return jsonify({"success": False, "message": "缺少書名"}), 400
+
+    normalized = _normalize_title_for_compare(title)
+    existing_titles = BookTitle.query.all()
+    existing_norm_map = {}
+    for bt in existing_titles:
+        norm = _normalize_title_for_compare(bt.title)
+        if norm:
+            existing_norm_map.setdefault(norm, bt)
+
+    exact_match = existing_norm_map.get(normalized)
+    similar_titles = []
+    if not exact_match and existing_norm_map:
+        matches = difflib.get_close_matches(normalized, list(existing_norm_map.keys()), n=3, cutoff=0.86)
+        similar_titles = [existing_norm_map[m].title for m in matches]
+    elif exact_match and exact_match.title != title:
+        similar_titles = [exact_match.title]
+
+    existing_in_cabinet = False
+    if exact_match and cabinet_id:
+        existing_in_cabinet = (
+            Inventory.query
+            .filter_by(title_id=exact_match.id, cabinet_id=cabinet_id)
+            .first()
+            is not None
+        )
+
+    author = (exact_match.author or "") if exact_match else ""
+    cover_url = (exact_match.cover_link or "") if exact_match else ""
+    topics = parse_topics_field((exact_match.topics if exact_match else None)) or []
+
+    if not author:
+        try:
+            from tools.fetch_author import fetch_author_for_title
+            author, _ = fetch_author_for_title(title)
+            author = author or ""
+        except Exception:
+            author = ""
+
+    if not cover_url:
+        try:
+            from tools.fetch_cover_url import fetch_url_for_title
+            cover_url, _ = fetch_url_for_title(title)
+            cover_url = cover_url or ""
+        except Exception:
+            cover_url = ""
+
+    if not topics:
+        try:
+            from tools.fetch_topics import fetch_topics_for_title
+            topics, _ = fetch_topics_for_title(title)
+            topics = topics or []
+        except Exception:
+            topics = []
+
+    return jsonify({
+        "success": True,
+        "title": title,
+        "author": author or "",
+        "cover_url": cover_url or "",
+        "topics": topics or [],
+        "exact_match_title": exact_match.title if exact_match else "",
+        "similar_titles": similar_titles,
+        "existing_in_cabinet": existing_in_cabinet,
+    })
 
 
 @admin_bp.route("/admin")

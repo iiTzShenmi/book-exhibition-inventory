@@ -1058,50 +1058,149 @@ async function toggleCabinetType(id) {
 
   function bindForms() {
     const addBookForm = document.getElementById('add-book-form');
+    let pendingAddBookPayload = null;
+    const previewOverlay = document.getElementById('add-book-preview-overlay');
+    const previewBox = previewOverlay?.querySelector('.add-book-preview') || null;
+    const previewTitle = document.getElementById('preview-title');
+    const previewAuthor = document.getElementById('preview-author');
+    const previewTopics = document.getElementById('preview-topics');
+    const previewWarnings = document.getElementById('preview-warnings');
+    const previewCover = document.getElementById('preview-cover-img');
+    const previewLoading = document.getElementById('add-book-preview-loading');
+    const previewClose = document.getElementById('add-book-preview-close');
+    const previewCancel = document.getElementById('add-book-preview-cancel');
+    const previewConfirm = document.getElementById('add-book-preview-confirm');
+
+    const closePreview = () => {
+      if (previewOverlay) previewOverlay.style.display = 'none';
+    };
+
+    const openPreview = (data, formData) => {
+      if (!previewOverlay) return;
+      pendingAddBookPayload = { data, formData };
+      if (previewLoading) previewLoading.style.display = 'none';
+      if (previewBox) previewBox.classList.remove('is-loading');
+      if (previewTitle) previewTitle.textContent = data.title || '書名';
+      if (previewAuthor) previewAuthor.textContent = data.author ? `作者：${data.author}` : '作者：未取得';
+      if (previewCover) {
+        previewCover.src = data.cover_url || '';
+        previewCover.alt = data.title || '封面';
+      }
+      if (previewTopics) {
+        previewTopics.innerHTML = '';
+        const topics = Array.isArray(data.topics) ? data.topics : [];
+        if (!topics.length) {
+          previewTopics.innerHTML = '<span class="muted">未取得主題</span>';
+        } else {
+          topics.forEach((topic) => {
+            const chip = document.createElement('span');
+            chip.className = 'topic-chip';
+            chip.textContent = topic;
+            previewTopics.appendChild(chip);
+          });
+        }
+      }
+      if (previewWarnings) {
+        previewWarnings.innerHTML = '';
+        if (data.existing_in_cabinet) {
+          const warn = document.createElement('div');
+          warn.className = 'preview-warning preview-warning--danger';
+          warn.textContent = '此書已存在於該櫃位，將視為補貨。';
+          previewWarnings.appendChild(warn);
+        }
+        if (data.similar_titles && data.similar_titles.length) {
+          const warn = document.createElement('div');
+          warn.className = 'preview-warning';
+          warn.textContent = `相似書名：${data.similar_titles.join('、')}`;
+          previewWarnings.appendChild(warn);
+        }
+      }
+      previewOverlay.style.display = 'flex';
+    };
+
+    const submitAddBook = async () => {
+      if (!pendingAddBookPayload) return;
+      const { data, formData } = pendingAddBookPayload;
+      const submitData = new FormData(formData);
+      submitData.append('author', data.author || '');
+      submitData.append('cover_url', data.cover_url || '');
+      submitData.append('topics', JSON.stringify(data.topics || []));
+      try {
+        const res = await fetch(addBookForm.action || '/add_book', {
+          method: 'POST',
+          body: submitData,
+          headers: headersWithCsrf(),
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) {
+          showToast(result.message || '新增失敗', false);
+          return;
+        }
+
+        const undo = result.book_id
+          ? async () => {
+              await fetch(`/cabinets/${result.cabinet_id}/books/${result.book_id}`, {
+                method: 'DELETE',
+                headers: headersWithCsrf(),
+              });
+              await loadCabinets();
+              if (result.title) await refreshBookCard(result.title);
+            }
+          : null;
+
+        showToast(result.message || '新增完成', true, undo);
+        refreshNotificationsIfAvailable();
+        if (result.title && typeof refreshBookCard === 'function') {
+          await refreshBookCard(result.title);
+        }
+        closePreview();
+        closeAddBookModal();
+        pendingAddBookPayload = null;
+      } catch (err) {
+        console.error(err);
+        showToast('網路錯誤', false);
+      }
+    };
     if (addBookForm) {
       addBookForm.addEventListener('submit', async e => {
         e.preventDefault();
         const fd = new FormData(addBookForm);
         const bookTitle = fd.get('title') || '';
         const cabId = fd.get('cabinet_id');
-        if (!window.confirm(`新增《${bookTitle}》到櫃位(${cabId || '未選'})？`)) return;
-
+        if (!bookTitle || !cabId) {
+          showToast('請輸入書名並選擇櫃位', false);
+          return;
+        }
         try {
-          const res = await fetch(addBookForm.action || '/add_book', {
+          if (previewOverlay) previewOverlay.style.display = 'flex';
+          if (previewLoading) previewLoading.style.display = 'flex';
+          if (previewBox) previewBox.classList.add('is-loading');
+          const res = await fetch('/admin/add_book_preview', {
             method: 'POST',
             body: fd,
             headers: headersWithCsrf(),
           });
           const data = await res.json();
           if (!res.ok || !data.success) {
-            showToast(data.message || '新增失敗', false);
+            showToast(data.message || '取得預覽失敗', false);
+            if (previewOverlay) previewOverlay.style.display = 'none';
             return;
           }
-
-          const undo = data.book_id
-            ? async () => {
-                await fetch(`/cabinets/${data.cabinet_id}/books/${data.book_id}`, {
-                  method: 'DELETE',
-                  headers: headersWithCsrf(),
-                });
-                await loadCabinets();
-                if (data.title) await refreshBookCard(data.title);
-              }
-            : null;
-
-          showToast(data.message || '新增完成', true, undo);
-          refreshNotificationsIfAvailable();
-
-          const title = fd.get('title');
-          if (title && typeof refreshBookCard === 'function') {
-            await refreshBookCard(title);
-          }
-
-          closeAddBookModal();
+          openPreview(data, addBookForm);
         } catch (err) {
           console.error(err);
           showToast('網路錯誤', false);
+          if (previewOverlay) previewOverlay.style.display = 'none';
         }
+      });
+    }
+
+    if (previewClose) previewClose.addEventListener('click', closePreview);
+    if (previewCancel) previewCancel.addEventListener('click', closePreview);
+    if (previewConfirm) previewConfirm.addEventListener('click', submitAddBook);
+    if (previewOverlay) {
+      previewOverlay.addEventListener('click', (event) => {
+        if (event.target === previewOverlay) closePreview();
       });
     }
 

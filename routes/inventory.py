@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 
@@ -421,6 +422,9 @@ def add_book():
     title = request.form.get("title", "").strip()
     cabinet_id = request.form.get("cabinet_id", type=int)
     amount = request.form.get("amount", type=int, default=1)
+    author = request.form.get("author", "").strip()
+    cover_url = request.form.get("cover_url", "").strip()
+    topics_raw = request.form.get("topics", "").strip()
 
     if not title or not cabinet_id:
         return jsonify({"success": False, "message": "缺少書名或櫃位"}), 400
@@ -432,6 +436,20 @@ def add_book():
     title_obj = get_or_create_title(title)
     if not title_obj or not title_obj.id:
         return jsonify({"success": False, "message": "無法建立或取得書名"}), 400
+
+    if author and not (title_obj.author or "").strip():
+        title_obj.author = author
+    if cover_url and not (title_obj.cover_link or "").strip():
+        title_obj.cover_link = cover_url
+    if topics_raw and not (title_obj.topics or "").strip():
+        try:
+            topics_value = json.loads(topics_raw)
+            if isinstance(topics_value, list):
+                title_obj.topics = json.dumps(topics_value, ensure_ascii=False)
+            else:
+                title_obj.topics = str(topics_value)
+        except Exception:
+            title_obj.topics = topics_raw
 
     existing = active_books_query().filter_by(title_id=title_obj.id, cabinet_id=cabinet_id).first()
 

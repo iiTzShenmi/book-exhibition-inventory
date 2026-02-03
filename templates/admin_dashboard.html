@@ -214,6 +214,35 @@
     </div>
   </div>
 
+  <div id="add-book-preview-overlay" class="modal-overlay" style="display:none;">
+    <div class="modal-box medium add-book-preview">
+      <div class="card__header">
+        <div>
+          <span class="preview-label">新增確認</span>
+        </div>
+      </div>
+      <div class="preview-loading" id="add-book-preview-loading" style="display:none;">
+        <div class="spinner"></div>
+        <span>正在抓取書籍資料…</span>
+      </div>
+      <div class="add-book-preview__body">
+        <div class="preview-cover">
+          <img id="preview-cover-img" src="" alt="書封面預覽">
+        </div>
+        <div class="preview-info">
+          <h4 id="preview-title">書名</h4>
+          <p class="muted" id="preview-author"></p>
+          <div class="preview-topics" id="preview-topics"></div>
+          <div class="preview-warnings" id="preview-warnings"></div>
+        </div>
+      </div>
+      <div class="actions btn-group">
+        <button type="button" class="btn btn--primary" id="add-book-preview-confirm">確認新增</button>
+        <button type="button" class="btn btn--secondary btn--danger-outline" id="add-book-preview-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
   <div id="cabinet-manager-overlay" class="modal-overlay" style="display:none;">
     <div class="modal-box large">
       <h3>櫃位資訊</h3>

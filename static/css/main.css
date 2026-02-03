@@ -524,6 +524,7 @@ textarea:focus {
   align-items: center;
   position: relative;
   overflow: hidden;
+  isolation: isolate;
   min-height: 320px;
   box-shadow: 0 16px 34px rgba(15, 23, 42, 0.12);
   transition: opacity 0.25s ease, transform 0.25s ease;
@@ -544,6 +545,7 @@ textarea:focus {
   background: radial-gradient(circle, rgba(47, 107, 255, 0.2), transparent 70%);
   opacity: 0.7;
   pointer-events: none;
+  z-index: 1;
 }
 
 .event-banner::after {
@@ -555,11 +557,12 @@ textarea:focus {
   height: 220px;
   background: radial-gradient(circle, rgba(255, 188, 125, 0.22), transparent 70%);
   pointer-events: none;
+  z-index: 1;
 }
 
 .event-banner__content {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: grid;
   gap: 8px;
 }
@@ -666,18 +669,79 @@ textarea:focus {
 }
 
 .event-banner--active {
-  box-shadow: 0 20px 40px rgba(250, 204, 21, 0.22);
-  border-color: rgba(250, 204, 21, 0.35);
+  box-shadow: 0 24px 52px rgba(250, 204, 21, 0.55), 0 0 0 2px rgba(250, 204, 21, 0.85);
+  border-color: rgba(250, 204, 21, 0.95);
+  position: relative;
+  overflow: hidden;
+  background-size: 200% 200%;
+  animation: eventWaves 5s ease-in-out infinite, eventGlow 2.8s ease-in-out infinite, eventGradient 6s ease-in-out infinite;
 }
 
 .event-banner--active::after {
-  background: radial-gradient(circle at 20% 20%, rgba(250, 204, 21, 0.25), transparent 60%);
+  background: radial-gradient(circle at 20% 20%, rgba(255, 235, 120, 0.85), transparent 60%);
   opacity: 1;
+}
+
+.event-banner--active::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background: linear-gradient(120deg, rgba(255, 235, 140, 0.12), rgba(255, 220, 80, 0.95), rgba(255, 235, 140, 0.12));
+  background-size: 200% 200%;
+  animation: eventShine 2.4s linear infinite;
+  z-index: 1;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.event-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 226, 92, 0.5);
+  color: #5a3a00;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  box-shadow: 0 10px 20px rgba(255, 215, 64, 0.45);
+  animation: eventTagPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes eventWaves {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes eventGlow {
+  0%, 100% { box-shadow: 0 18px 36px rgba(250, 204, 21, 0.22), 0 0 0 1px rgba(250, 204, 21, 0.35); }
+  50% { box-shadow: 0 22px 42px rgba(250, 204, 21, 0.35), 0 0 0 1px rgba(250, 204, 21, 0.6); }
+}
+
+@keyframes eventTagPulse {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
+@keyframes eventGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes eventShine {
+  0% { transform: translateX(-35%) rotate(6deg); opacity: 0; background-position: 0% 50%; }
+  30% { opacity: 0.75; }
+  60% { opacity: 0.35; }
+  100% { transform: translateX(35%) rotate(6deg); opacity: 0; background-position: 100% 50%; }
 }
 
 .event-banner__visuals {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   justify-content: flex-end;
   align-items: flex-end;
@@ -690,7 +754,7 @@ textarea:focus {
 
 .book-showcase-grid {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 16px;
 }
 
@@ -716,9 +780,9 @@ textarea:focus {
   outline-offset: 3px;
 }
 
-.showcase-book:nth-child(1) { transform: translateY(6px); }
-.showcase-book:nth-child(2) { transform: translateY(0); }
-.showcase-book:nth-child(3) { transform: translateY(10px); }
+.showcase-book {
+  transform: none;
+}
 
 .showcase-book:hover {
   transform: translateY(-6px);
@@ -1220,33 +1284,18 @@ body:not(.is-admin) .info-hub {
   object-fit: contain;
 }
 
-.result-card.has-cover .card__header,
-.result-card.has-cover .status-list,
-.result-card.has-cover .topic-chips,
-.result-card.has-cover .reserve-hint {
+.result-card.has-cover .cover-pop {
   display: none;
 }
 
-.result-card.has-cover.show-status .card__header,
-.result-card.has-cover.show-status .status-list,
-.result-card.has-cover.show-status .topic-chips,
-.result-card.has-cover.show-status .reserve-hint {
+.result-card.has-cover.show-cover .cover-pop {
   display: block;
 }
 
-.result-card.has-cover.show-status .card__header {
-  display: flex;
-}
-
-.result-card.has-cover.show-status .status-list {
-  display: grid;
-}
-
-.result-card.has-cover.show-status .topic-chips {
-  display: flex;
-}
-
-.result-card.has-cover.show-status .cover-pop {
+.result-card.has-cover.show-cover .card__header,
+.result-card.has-cover.show-cover .status-list,
+.result-card.has-cover.show-cover .topic-chips,
+.result-card.has-cover.show-cover .reserve-hint {
   display: none;
 }
 
@@ -1892,7 +1941,7 @@ body:not(.is-admin) .info-hub {
   display: grid;
   gap: 12px;
   width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .discount-ticket {
@@ -1903,10 +1952,15 @@ body:not(.is-admin) .info-hub {
   overflow: hidden;
   border: none;
   padding: 0;
+  text-decoration: none;
 }
 
 .discount-ticket--secondary {
   background: linear-gradient(135deg, #2fbdff, #1da8ff);
+}
+
+.discount-ticket--line {
+  background: linear-gradient(135deg, #34d399, #16a34a);
 }
 
 .ticket-left {
@@ -1960,6 +2014,12 @@ body:not(.is-admin) .info-hub {
   display: none;
   font-size: 0.8rem;
   opacity: 0.9;
+}
+
+.ticket-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .ticket-divider {
@@ -2503,7 +2563,7 @@ body:not(.is-admin) .info-hub {
   }
 
   .promo-note {
-    display: inline-flex;
+    display: block;
     margin-top: 4px;
   }
 
@@ -2813,6 +2873,19 @@ body:not(.is-admin) .info-hub {
   .venue-map-body { grid-template-columns: 1fr; }
   .venue-map-canvas { min-height: 240px; }
   .venue-map-pin { font-size: 11px; padding: 5px 8px; }
+  .event-banner--active {
+    animation-duration: 6.5s;
+  }
+  .event-banner--active::before {
+    opacity: 0.45;
+    animation-duration: 3.6s;
+  }
+  .event-banner--active::after {
+    opacity: 0.8;
+  }
+  .event-live {
+    font-size: 0.7rem;
+  }
 }
 
 @media (max-width: 720px) {
