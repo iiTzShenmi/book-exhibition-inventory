@@ -76,8 +76,34 @@
           <div class="hero__search-row">
             <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
               <div class="search-box{% if request.endpoint == 'inventory.home' %} search-box--intro{% endif %}">
-                <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." />
+                <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." value="{{ request.args.get('q', '') }}" />
                 <button class="btn btn--primary" type="submit">搜尋</button>
+                <button type="button" class="btn btn--ghost btn--sm" onclick="toggleAdvanced()">進階篩選</button>
+              </div>
+              <div id="advanced-panel" class="advanced-panel" style="display:none;">
+                <div class="filter-grid">
+                  <div class="field">
+                    <label>📍 櫃位</label>
+                    <select name="cabinet" id="cabinet">
+                      <option value="">全部櫃位</option>
+                      {% for cab in all_cabinets or [] %}
+                      <option value="{{ cab.name }}" {% if request.args.get('cabinet') == cab.name %}selected{% endif %}>{{ cab.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>📦 庫存狀態</label>
+                    <select name="status" id="status">
+                      <option value="">全部</option>
+                      <option value="in" {% if request.args.get('status') == 'in' %}selected{% endif %}>✅ 有庫存</option>
+                      <option value="out" {% if request.args.get('status') == 'out' %}selected{% endif %}>🔻 缺貨中</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>✍️ 作者</label>
+                    <input type="text" name="author" id="author" placeholder="作者姓名 (選填)" value="{{ request.args.get('author', '') }}">
+                  </div>
+                </div>
               </div>
             </form>
             {% if request.endpoint == 'inventory.home' %}

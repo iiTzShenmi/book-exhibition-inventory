@@ -25,22 +25,37 @@ api_bp = Blueprint("api", __name__)
 @api_bp.route("/search")
 def search():
     query = request.args.get("q", "").strip()
-    if not query:
+    author_filter = request.args.get("author", "").strip()
+    cabinet_filter = request.args.get("cabinet", "").strip()
+    status_filter = request.args.get("status", "").strip()
+    has_filters = bool(query or author_filter or cabinet_filter or status_filter)
+    if not has_filters:
         return redirect(url_for("inventory.home"))
 
     MAX_SEARCH_RESULTS = 200
 
-    base_query = active_books_query().join(BookTitle)
+    base_query = active_books_query().join(BookTitle).join(Cabinet)
     if is_postgres():
-        ts_query = func.plainto_tsquery("simple", query.replace(" ", " & "))
-        title_vector = func.to_tsvector("simple", BookTitle.title)
-        topic_vector = func.to_tsvector("simple", func.coalesce(BookTitle.topics, ""))
-        ilike_filter = BookTitle.title.ilike(f"%{query}%")
-        base_query = base_query.filter(
-            title_vector.op("@@")(ts_query) | topic_vector.op("@@")(ts_query) | ilike_filter
-        )
+        if query:
+            ts_query = func.plainto_tsquery("simple", query.replace(" ", " & "))
+            title_vector = func.to_tsvector("simple", BookTitle.title)
+            topic_vector = func.to_tsvector("simple", func.coalesce(BookTitle.topics, ""))
+            ilike_filter = BookTitle.title.ilike(f"%{query}%")
+            base_query = base_query.filter(
+                title_vector.op("@@")(ts_query) | topic_vector.op("@@")(ts_query) | ilike_filter
+            )
     else:
-        base_query = base_query.filter(BookTitle.title.contains(query))
+        if query:
+            base_query = base_query.filter(BookTitle.title.contains(query))
+
+    if author_filter:
+        base_query = base_query.filter(BookTitle.author.ilike(f"%{author_filter}%"))
+    if cabinet_filter:
+        base_query = base_query.filter(Cabinet.name == cabinet_filter)
+    if status_filter == "in":
+        base_query = base_query.filter(Book.in_stock.is_(True))
+    elif status_filter == "out":
+        base_query = base_query.filter(Book.in_stock.is_(False))
     base_query = base_query.order_by(Book.updated_at.desc())
     results = base_query.limit(MAX_SEARCH_RESULTS).all()
 
@@ -64,7 +79,7 @@ def search():
     has_exact_results = len(results) > 0
     try:
         query_norm = query.strip().lower()
-        if len(query_norm) >= 2:
+        if query_norm and len(query_norm) >= 2:
             query_chars = list(query_norm)
             if len(query_chars) >= 2:
                 char_filters = []
