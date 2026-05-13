@@ -191,7 +191,7 @@
         const isInteractive = event.target.closest('button, a, input, select, textarea');
         if (isInteractive) return;
         if (card.classList.contains('has-cover')) {
-          card.classList.toggle('show-cover');
+          card.classList.toggle('show-info');
         }
         trackView(card.dataset.title || '');
       });

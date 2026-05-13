@@ -67,7 +67,7 @@
               <img src="{{ url_for('static', filename='images/exis-logo-mark.svg') }}" alt="">
             </span>
             <span class="brand__text">
-              <span class="brand__eyebrow">EXIS v1.0</span>
+              <span class="brand__eyebrow">EXIS v2.3</span>
               <span class="brand__title">展場庫存系統</span>
             </span>
             <button type="button" class="hero-brand__action" id="hero-quick-guide" aria-label="現場快速導覽" disabled aria-disabled="true" title="暫時停用" style="display:none;">
@@ -78,7 +78,7 @@
           </p>
           <div class="hero__search-row">
             <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
-              <div class="search-box{% if request.endpoint == 'inventory.home' %} search-box--intro{% endif %}">
+              <div class="search-box" {% if request.endpoint == 'inventory.home' %}data-search-intro="true"{% endif %}>
                 <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." value="{{ request.args.get('q', '') }}" />
                 <button class="btn btn--primary" type="submit">搜尋</button>
                 <button type="button" class="btn btn--ghost btn--sm" onclick="toggleAdvanced()">進階篩選</button>

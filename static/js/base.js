@@ -199,15 +199,18 @@
     if (overlay) overlay.style.display = 'flex';
   }
 
+  function runSearchIntro() {
+    const searchBox = document.querySelector('[data-search-intro]');
+    if (!searchBox) return;
+    searchBox.classList.remove('search-box--intro');
+    void searchBox.offsetWidth;
+    searchBox.classList.add('search-box--intro');
+  }
+
   function closeAnnouncement() {
     const overlay = document.getElementById('announcement-overlay');
     if (overlay) overlay.style.display = 'none';
-    const searchBox = document.querySelector('.search-box--intro');
-    if (searchBox) {
-      searchBox.classList.remove('search-box--intro');
-      void searchBox.offsetWidth;
-      searchBox.classList.add('search-box--intro');
-    }
+    runSearchIntro();
   }
 
   function openAboutModal() {
@@ -314,6 +317,8 @@
     loadEventsForHero();
     if (document.getElementById('announcement-overlay')) {
       openAnnouncement();
+    } else {
+      runSearchIntro();
     }
     if (aboutBtn) {
       aboutBtn.addEventListener('click', openAboutModal);
