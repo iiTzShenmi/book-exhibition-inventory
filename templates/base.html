@@ -7,6 +7,7 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{{ title or "書展庫存系統" }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css', v=static_version) }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/exis_refresh.css', v=static_version) }}">
   {% if request.blueprint == 'admin' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css', v=static_version) }}">
   {% endif %}
@@ -62,7 +63,9 @@
       <section class="hero hero--single" id="search-section">
         <div class="hero__text">
           <p class="eyebrow hero-brand">
-            <span class="brand__mark">⚡</span>
+            <span class="brand__mark brand__mark--logo" aria-hidden="true">
+              <img src="{{ url_for('static', filename='images/exis-logo-mark.svg') }}" alt="">
+            </span>
             <span class="brand__text">
               <span class="brand__eyebrow">EXIS v1.0</span>
               <span class="brand__title">展場庫存系統</span>
@@ -404,7 +407,9 @@
       <div class="footer-content">
         <div class="footer-brand">
           <div class="brand-logo">
-            <span class="brand-mark">⚡</span>
+            <span class="brand-mark brand-mark--logo" aria-hidden="true">
+              <img src="{{ url_for('static', filename='images/exis-logo-mark.svg') }}" alt="">
+            </span>
             <span class="brand-text">EXIS</span>
           </div>
           <p class="footer-desc">
