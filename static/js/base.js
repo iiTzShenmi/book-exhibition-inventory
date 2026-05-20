@@ -126,11 +126,20 @@
       ? allAlerts
       : allAlerts.filter(a => a.type === filterType);
 
-    list.innerHTML = '';
+    list.textContent = '';
     if (!filtered.length) {
-      list.innerHTML = "<div class='notif-empty'>🎉 沒有相關通知</div>";
+      const empty = document.createElement('div');
+      empty.className = 'notif-empty';
+      empty.textContent = '🎉 沒有相關通知';
+      list.appendChild(empty);
+      setNotifTitle(filterType);
       return;
     }
+
+    const normalizeAlertType = (type) => {
+      if (type === 'out-of-stock' || type === 'low-stock' || type === 'info') return type;
+      return 'info';
+    };
 
     const getStatusLabel = (type) => {
       if (type === 'out-of-stock') return '缺貨';
@@ -139,15 +148,27 @@
     };
 
     filtered.forEach(alert => {
+      const safeType = normalizeAlertType(alert?.type);
       const item = document.createElement('div');
-      item.className = `notif-item ${alert.type || 'info'}`;
-      item.innerHTML = `
-        <span class="notif-icon">${getStatusIcon(alert.type)}</span>
-        <div class="notif-body">
-          <span class="notif-type">${getStatusLabel(alert.type)}</span>
-          <span class="notif-msg">${alert.message}</span>
-        </div>
-      `;
+      item.className = `notif-item ${safeType}`;
+
+      const icon = document.createElement('span');
+      icon.className = 'notif-icon';
+      icon.textContent = getStatusIcon(safeType);
+
+      const body = document.createElement('div');
+      body.className = 'notif-body';
+
+      const type = document.createElement('span');
+      type.className = 'notif-type';
+      type.textContent = getStatusLabel(safeType);
+
+      const message = document.createElement('span');
+      message.className = 'notif-msg';
+      message.textContent = String(alert?.message || '');
+
+      body.append(type, message);
+      item.append(icon, body);
       list.appendChild(item);
     });
 

@@ -419,6 +419,9 @@ def adjust_cabinet_book_quantity(cabinet_id, book_id):
 
 @inventory_bp.route("/add_book", methods=["POST"])
 def add_book():
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "未登入"}), 401
+
     title = request.form.get("title", "").strip()
     cabinet_id = request.form.get("cabinet_id", type=int)
     amount = request.form.get("amount", type=int, default=1)
