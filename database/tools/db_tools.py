@@ -34,7 +34,10 @@ ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from app import app, sync_csv_to_db, CSV_PATH  # noqa: E402
+# Maintenance commands must be explicit; importing app.py should not mutate schema/data.
+os.environ.setdefault("EXIS_SKIP_STARTUP_INIT", "1")
+
+from app import app, initialize_app, sync_csv_to_db, CSV_PATH  # noqa: E402
 from database.models import db, BookTitle, Inventory  # noqa: E402
 
 
@@ -91,6 +94,14 @@ def cmd_sync_csv(_: argparse.Namespace) -> int:
     with app.app_context():
         sync_csv_to_db()
     print("[sync-csv] done")
+    return 0
+
+
+def cmd_init_db(args: argparse.Namespace) -> int:
+    """Apply schema/bootstrap tasks as an explicit deploy step."""
+    print("[init-db] applying schema/bootstrap tasks")
+    initialize_app(sync_csv=not args.no_sync_csv)
+    print("[init-db] done")
     return 0
 
 
@@ -707,6 +718,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync_cmd = sub.add_parser("sync-csv", help="Import inventory.csv into the configured DB.")
     sync_cmd.set_defaults(func=cmd_sync_csv)
+
+    init_cmd = sub.add_parser("init-db", help="Apply schema/bootstrap tasks explicitly before server startup.")
+    init_cmd.add_argument(
+        "--no-sync-csv",
+        action="store_true",
+        help="Create/update schema and seed required admin data without importing inventory.csv.",
+    )
+    init_cmd.set_defaults(func=cmd_init_db)
 
     check_cmd = sub.add_parser("check", help="Run data-quality checks (duplicates, missing metadata).")
     check_cmd.set_defaults(func=check_db)

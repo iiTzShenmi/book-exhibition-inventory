@@ -57,6 +57,14 @@ def env_int(name: str, default: int) -> int:
         return default
 
 
+def env_flag_any(names: tuple[str, ...], default: bool = False) -> bool:
+    """Read the first configured boolean env flag from a list of aliases."""
+    for name in names:
+        if os.environ.get(name) is not None:
+            return env_flag(name, default)
+    return default
+
+
 def mask_sensitive_uri(uri: str | None) -> str:
     if not uri:
         return ""
@@ -1046,7 +1054,7 @@ def log_action(action, target=None, details=None):
     # Note: Don't commit here - let caller commit to maintain transaction integrity
 
 
-def initialize_app():
+def initialize_app(*, sync_csv: bool = True):
     """Run one-time startup tasks."""
     print("[init] starting app initialization")
     with app.app_context():
@@ -1068,27 +1076,26 @@ def initialize_app():
         drop_quantity_columns_from_sqlite()  # Remove old quantity columns
         migrate_legacy_books_into_inventory()
         drop_legacy_book_table()
-        print("[init] syncing CSV if needed...")
-        sync_csv_to_db()
+        if sync_csv:
+            print("[init] syncing CSV if needed...")
+            sync_csv_to_db()
+        else:
+            print("[init] CSV sync skipped by command option")
     print("[init] done")
-# Check SKIP_INIT - treat "0", "", None, or unset as False (don't skip)
-skip_init = os.environ.get("SKIP_INIT", "").strip().lower()
-if skip_init and skip_init not in ("0", "false", "no"):
-    print("[init] SKIP_INIT set; initialization skipped")
-    # Still run critical schema migrations even if SKIP_INIT is set
-    with app.app_context():
-        print("[init] running critical schema migrations...")
-        ensure_admin_email_column()
-        migrate_plaintext_invite_codes()
-        ensure_advance_admin_exists()
-        ensure_inventory_in_stock_column()
-        ensure_inventory_status_columns()
-        ensure_book_title_view_columns()
-        ensure_event_date_columns()
-        ensure_pg_search_indexes()
-else:
+
+
+def should_run_startup_init() -> bool:
+    """Return whether schema/data maintenance may run during web startup."""
+    if env_flag_any(("EXIS_SKIP_STARTUP_INIT", "SKIP_INIT"), False):
+        return False
+    return env_flag("EXIS_AUTO_INIT", not IS_HOSTED_DEPLOY)
+
+
+if should_run_startup_init():
     initialize_app()
-print("\n[init] create_all done\n")
+else:
+    print("[init] startup schema/data maintenance skipped")
+    print("[init] run `python -m database.tools.db_tools init-db` before deployment when schema changed")
 
 def cabinet_type_name(cabinet):
     """Return the normalized cabinet type string."""
@@ -1420,6 +1427,9 @@ def collect_replenish_alerts():
 @app.before_request
 def ensure_schema_migrations():
     """Ensure critical schema migrations are applied before handling requests."""
+    request_check_default = should_run_startup_init() and not IS_HOSTED_DEPLOY
+    if not env_flag("EXIS_REQUEST_SCHEMA_CHECK", request_check_default):
+        return
     # Only check once per app instance to avoid performance issues
     if not hasattr(app, '_schema_migrations_checked'):
         try:

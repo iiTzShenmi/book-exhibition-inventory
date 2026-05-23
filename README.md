@@ -7,10 +7,23 @@ Flask-based inventory management system for book exhibitions. This single README
 ### Production (Render)
 - PostgreSQL via `DATABASE_URL` is the single source of truth.
 - CSV is only for one-time imports/exports.
+- Run schema/bootstrap maintenance explicitly before starting the web server:
+  ```bash
+  python -m database.tools.db_tools init-db --no-sync-csv
+  ```
+- Start the web process with startup mutation disabled:
+  ```bash
+  EXIS_AUTO_INIT=0 gunicorn app:app
+  ```
 
 ### Development (Local)
 - SQLite at `database/inventory.db`.
 - CSV sync is available for testing and local imports.
+- Local startup still runs the lightweight bootstrap by default. To match production behavior locally:
+  ```bash
+  python -m database.tools.db_tools init-db --no-sync-csv
+  EXIS_AUTO_INIT=0 flask run --debug --no-reload --host=0.0.0.0
+  ```
 
 ## Database Architecture & Operations
 
@@ -29,6 +42,9 @@ Important notes:
 
 Common commands (run from repo root):
 ```bash
+# Explicit schema/bootstrap step
+python -m database.tools.db_tools init-db --no-sync-csv
+
 # Health check / maintenance
 python -m database.tools.db_tools check
 python -m database.tools.db_tools dedupe
@@ -44,6 +60,7 @@ python database/tools/db_sync.py push --auto-fix # validate, clean, upload
 python database/tools/db_sync.py diagnose        # compare local/cloud
 python database/tools/db_sync.py clean --purge-null --dedupe --auto-fix
 python database/tools/cloud_db_download.py --output database/backups/render_dump.sql
+
 ```
 
 Key files:
@@ -126,7 +143,12 @@ The separate `docs/` folder has been merged into this README. Key operational no
 
 ### Migrations / Schema Changes
 - Quantity tracking has been removed (no qty columns on inventory).
-- Always ensure migrations run on startup (see `initialize_app()` in `app.py`).
+- Production web startup should not mutate schema/data. Run this explicit step before deploy/start when schema or bootstrap data changes:
+  ```bash
+  python -m database.tools.db_tools init-db --no-sync-csv
+  ```
+- `Procfile` sets `EXIS_AUTO_INIT=0` for the web process. If a host does not run the `release:` command automatically, configure the same `init-db` command as the platform pre-deploy step.
+- `EXIS_REQUEST_SCHEMA_CHECK=1` can temporarily re-enable request-time schema checks for emergency maintenance, but it should stay disabled in production.
 
 ### Cleanup Notes
 - Logs are temporary and safe to delete:
@@ -154,7 +176,5 @@ Deployed on Render with:
 - PostgreSQL database
 - Gunicorn WSGI server
 - Automatic backups
-
-See `docs/MIGRATION_GUIDE.md` for migration instructions.
-
-
+- Pre-deploy command: `python -m database.tools.db_tools init-db --no-sync-csv`
+- Start command: `EXIS_AUTO_INIT=0 gunicorn app:app`
