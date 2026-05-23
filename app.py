@@ -5,14 +5,17 @@ import re
 import shutil
 import json
 import io
+import hashlib
+import hmac
 import urllib.parse
 import urllib.request
 import subprocess
 from datetime import datetime, timedelta
 from collections import defaultdict, Counter
 from sqlalchemy import text, func
-from werkzeug.security import check_password_hash, generate_password_hash
 from flask import Flask, abort, jsonify, request, session
+from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.security import check_password_hash, generate_password_hash
 import redis
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -35,7 +38,49 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD_RAW = os.environ.get("ADMIN_PASSWORD")
 ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH")
-IS_PRODUCTION = os.environ.get("FLASK_ENV") == "production" or bool(DATABASE_URL)
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def mask_sensitive_uri(uri: str | None) -> str:
+    if not uri:
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(uri)
+        if not parsed.password:
+            return uri
+        user = parsed.username or ""
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        netloc = f"{user}:****@{host}{port}" if user else f"{host}{port}"
+        return urllib.parse.urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        return "<masked>"
+
+
+IS_HOSTED_DEPLOY = (
+    os.environ.get("FLASK_ENV") == "production"
+    or os.environ.get("APP_ENV") == "production"
+    or env_flag("RENDER")
+    or bool(os.environ.get("RENDER_SERVICE_ID"))
+    or bool(os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
+)
+IS_PRODUCTION = IS_HOSTED_DEPLOY or bool(DATABASE_URL)
 
 if not ADMIN_PASSWORD_HASH and not ADMIN_PASSWORD_RAW:
     if not IS_PRODUCTION:
@@ -60,10 +105,11 @@ app.secret_key = (
     or secrets.token_hex(32)
 )
 # Session configuration for security
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=2)
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get("FLASK_ENV") == "production"  # HTTPS only in production
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=2)
+app.config["SESSION_COOKIE_SECURE"] = env_flag("SESSION_COOKIE_SECURE", IS_HOSTED_DEPLOY)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["MAX_CONTENT_LENGTH"] = env_int("MAX_UPLOAD_MB", 5) * 1024 * 1024
 
 REDIS_URL = os.environ.get("REDIS_URL")
 redis_client = None
@@ -72,14 +118,17 @@ _local_cache: dict[str, tuple[datetime, object]] = {}
 if REDIS_URL:
     try:
         redis_client = redis.from_url(REDIS_URL)
-        print(f"[cache] connected to redis at {REDIS_URL}")
+        redis_client.ping()
+        print(f"[cache] connected to redis at {mask_sensitive_uri(REDIS_URL)}")
     except Exception as err:
         print(f"[cache] redis connection failed ({err}); falling back to in-process cache")
+elif IS_HOSTED_DEPLOY:
+    print("[cache] WARNING: REDIS_URL is not set; rate limiting uses per-process memory storage")
 
 limiter = Limiter(
     key_func=get_remote_address,
     storage_uri=REDIS_URL if redis_client else "memory://",
-    default_limits=[],
+    default_limits=[os.environ.get("RATELIMIT_DEFAULT", "300 per minute")],
 )
 limiter.init_app(app)
 
@@ -794,6 +843,80 @@ def generate_invite_code(length: int = 10) -> str:
     alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
+
+def normalize_invite_code(code: str) -> str:
+    """Normalize invite codes so copy/paste casing and spacing do not matter."""
+    return re.sub(r"\s+", "", code or "").upper()
+
+
+def invite_code_pepper() -> str:
+    """Return the stable secret used for invite lookup HMACs."""
+    return os.environ.get("INVITE_CODE_PEPPER") or app.secret_key
+
+
+def invite_code_lookup(code: str) -> str:
+    """Return a deterministic, non-reversible lookup key for an invite code."""
+    normalized = normalize_invite_code(code)
+    secret = invite_code_pepper().encode("utf-8")
+    return hmac.new(secret, normalized.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def hash_invite_code(code: str) -> str:
+    """Return a salted hash for final invite-code verification."""
+    return generate_password_hash(normalize_invite_code(code))
+
+
+def verify_invite_code(invite: AdminInvite, code: str) -> bool:
+    """Verify a submitted code against a hashed invite row."""
+    normalized = normalize_invite_code(code)
+    if not invite or not normalized:
+        return False
+    if invite.code_hash:
+        return check_password_hash(invite.code_hash, normalized)
+    return hmac.compare_digest(invite.code or "", normalized)
+
+
+def invite_reference(invite_id: int | None = None) -> str:
+    """Generate a non-secret placeholder for the legacy plaintext code column."""
+    suffix = str(invite_id) if invite_id else secrets.token_hex(8)
+    return f"issued-{suffix}-{secrets.token_hex(4)}"[:32]
+
+
+def find_valid_invite(code: str) -> AdminInvite | None:
+    """Find and verify an unused invite without storing plaintext codes."""
+    normalized = normalize_invite_code(code)
+    if not normalized:
+        return None
+
+    lookup = invite_code_lookup(normalized)
+    invite = AdminInvite.query.filter_by(code_lookup=lookup, used_at=None).first()
+    if invite and verify_invite_code(invite, normalized):
+        return invite
+
+    # Backward-compatible path for pre-migration plaintext invite rows.
+    legacy_invite = AdminInvite.query.filter_by(code=normalized, used_at=None).first()
+    if legacy_invite and verify_invite_code(legacy_invite, normalized):
+        legacy_invite.code_hash = hash_invite_code(normalized)
+        legacy_invite.code_lookup = lookup
+        legacy_invite.code = invite_reference(legacy_invite.id)
+        return legacy_invite
+
+    # Resilient fallback for old deployments where the lookup pepper changed.
+    hashed_invites = (
+        AdminInvite.query
+        .filter(AdminInvite.used_at.is_(None))
+        .filter(AdminInvite.code_hash.isnot(None))
+        .all()
+    )
+    for candidate in hashed_invites:
+        if verify_invite_code(candidate, normalized):
+            candidate.code_lookup = lookup
+            if not candidate.code or not candidate.code.startswith("issued-"):
+                candidate.code = invite_reference(candidate.id)
+            return candidate
+    return None
+
+
 def is_postgres():
     return bool(DATABASE_URL) and DATABASE_URL.startswith("postgresql://")
 
@@ -809,6 +932,10 @@ def ensure_admin_email_column():
         with db.engine.connect() as conn:
             conn.execute(text("ALTER TABLE admin_user ADD COLUMN email VARCHAR(255)"))
             conn.commit()
+    if "role" not in columns:
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE admin_user ADD COLUMN role VARCHAR(50) DEFAULT 'admin'"))
+            conn.commit()
     if "admin_invite" not in inspector.get_table_names():
         AdminInvite.__table__.create(db.engine)
     else:
@@ -817,6 +944,55 @@ def ensure_admin_email_column():
             with db.engine.connect() as conn:
                 conn.execute(text("ALTER TABLE admin_invite ADD COLUMN role VARCHAR(50)"))
                 conn.commit()
+        if "code_hash" not in invite_cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE admin_invite ADD COLUMN code_hash VARCHAR(255)"))
+                conn.commit()
+        if "code_lookup" not in invite_cols:
+            with db.engine.connect() as conn:
+                conn.execute(text("ALTER TABLE admin_invite ADD COLUMN code_lookup VARCHAR(64)"))
+                conn.commit()
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_admin_invite_code_lookup ON admin_invite (code_lookup)"))
+                conn.commit()
+        except Exception as exc:
+            print(f"[migration] admin_invite code_lookup index skipped: {exc}")
+
+
+def migrate_plaintext_invite_codes():
+    """Convert legacy plaintext invite codes to lookup + salted hash rows."""
+    invites = AdminInvite.query.all()
+    changed = False
+    for invite in invites:
+        raw_code = (invite.code or "").strip()
+        placeholder = raw_code.startswith("issued-")
+        if raw_code and not placeholder and (not invite.code_hash or not invite.code_lookup):
+            normalized = normalize_invite_code(raw_code)
+            invite.code_hash = invite.code_hash or hash_invite_code(normalized)
+            invite.code_lookup = invite.code_lookup or invite_code_lookup(normalized)
+            invite.code = invite_reference(invite.id)
+            changed = True
+        elif raw_code and not placeholder and invite.code_hash and invite.code_lookup:
+            invite.code = invite_reference(invite.id)
+            changed = True
+    if changed:
+        db.session.commit()
+
+
+def ensure_advance_admin_exists():
+    """Keep one owner-level admin available before enforcing stricter RBAC."""
+    if AdminUser.query.filter_by(role="advance-admin").first():
+        return
+    preferred = None
+    if ADMIN_USERNAME:
+        preferred = AdminUser.query.filter_by(username=ADMIN_USERNAME).first()
+    preferred = preferred or AdminUser.query.order_by(AdminUser.id.asc()).first()
+    if not preferred:
+        return
+    preferred.role = "advance-admin"
+    db.session.commit()
+    print(f"[init] promoted admin '{preferred.username}' to advance-admin")
 
 
 def ensure_default_admin():
@@ -842,7 +1018,7 @@ def ensure_default_admin():
     )
     db.session.add(user)
     db.session.commit()
-    log_action("seed_admin", target=username, details=f"created default admin user (email={email})")
+    log_action("seed_admin", target=username, details="created default admin user")
     db.session.commit()
 
 
@@ -878,7 +1054,9 @@ def initialize_app():
         print("[init] tables ensured")
         print("[init] checking schema...")
         ensure_admin_email_column()
+        migrate_plaintext_invite_codes()
         ensure_default_admin()
+        ensure_advance_admin_exists()
         ensure_title_cover_column()
         ensure_book_title_view_columns()
         ensure_event_date_columns()
@@ -900,6 +1078,9 @@ if skip_init and skip_init not in ("0", "false", "no"):
     # Still run critical schema migrations even if SKIP_INIT is set
     with app.app_context():
         print("[init] running critical schema migrations...")
+        ensure_admin_email_column()
+        migrate_plaintext_invite_codes()
+        ensure_advance_admin_exists()
         ensure_inventory_in_stock_column()
         ensure_inventory_status_columns()
         ensure_book_title_view_columns()
@@ -1247,6 +1428,9 @@ def ensure_schema_migrations():
                 ensure_inventory_status_columns()
                 ensure_pg_search_indexes()
                 ensure_event_date_columns()
+                ensure_admin_email_column()
+                migrate_plaintext_invite_codes()
+                ensure_advance_admin_exists()
                 inspector = db.inspect(db.engine)
                 if "top_seller_snapshot" not in inspector.get_table_names():
                     TopSellerSnapshot.__table__.create(db.engine)
@@ -1265,8 +1449,6 @@ def ensure_schema_migrations():
 def csrf_protect():
     """Lightweight CSRF protection for all state-changing requests."""
     if request.endpoint and request.endpoint.startswith("static"):
-        return
-    if request.endpoint in {"auth.login", "auth.register"}:
         return
     if request.method in ("GET", "HEAD", "OPTIONS"):
         # Ensure a token exists for subsequent POSTs
@@ -1296,9 +1478,58 @@ def csrf_protect():
         abort(400, description="Invalid or missing CSRF token.")
 
 
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(error):
+    """Return a controlled response when uploads exceed MAX_CONTENT_LENGTH."""
+    message = "上傳檔案過大，請縮小後再試。"
+    if request.is_json or request.path.startswith("/api/"):
+        return jsonify({"success": False, "message": message}), 413
+    return message, 413
+
+
+def build_content_security_policy() -> str:
+    directives = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "script-src-elem 'self'",
+        "script-src-attr 'none'",
+        "style-src 'self'",
+        "style-src-elem 'self'",
+        "style-src-attr 'none'",
+        "img-src 'self' https: data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "frame-src 'none'",
+        "worker-src 'self'",
+        "manifest-src 'self'",
+        "media-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+    if IS_HOSTED_DEPLOY:
+        directives.append("upgrade-insecure-requests")
+    return "; ".join(directives)
+
+
 @app.after_request
-def disable_html_caching(response):
-    """Ensure HTML reflects the latest deploy on refresh."""
+def set_response_headers(response):
+    """Apply security headers and keep HTML uncached for fresh deploys."""
+    response.headers.setdefault("Content-Security-Policy", build_content_security_policy())
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    )
+    if IS_HOSTED_DEPLOY:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+
     if request.endpoint and request.endpoint.startswith("static"):
         return response
     if response.mimetype == "text/html":
@@ -1315,12 +1546,41 @@ def inject_csrf_token():
 @app.context_processor
 def inject_is_admin():
     """Expose admin flag to templates for conditional UI."""
-    return {"is_admin": bool(session.get("is_admin"))}
+    role = session.get("admin_role") or ""
+    if session.get("is_admin") and session.get("admin_id"):
+        try:
+            user = AdminUser.query.get(session.get("admin_id"))
+            if user:
+                role = user.role or "admin"
+                session["admin_role"] = role
+        except Exception:
+            role = role or "admin"
+    return {
+        "is_admin": bool(session.get("is_admin")),
+        "admin_role": role,
+        "can_view_sensitive_admin": role == "advance-admin",
+    }
 
 @app.context_processor
 def inject_static_version():
     """Expose a safe static asset version string for cache busting."""
     return {"static_version": app.config.get("STATIC_VERSION", "")}
+
+@app.context_processor
+def inject_public_event_state():
+    """Expose whether the public event anchor should be available."""
+    if request.blueprint == "admin":
+        return {"public_events_available": False}
+    try:
+        has_events = (
+            db.session.query(EventSchedule.id)
+            .filter(EventSchedule.is_active.is_(True))
+            .first()
+            is not None
+        )
+    except Exception:
+        has_events = False
+    return {"public_events_available": has_events}
 
 def register_blueprints(app):
     from routes.auth import auth_bp

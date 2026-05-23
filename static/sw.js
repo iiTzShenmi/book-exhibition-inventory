@@ -1,9 +1,11 @@
-const CACHE_NAME = 'bookexpo-offline-v4';
+const CACHE_NAME = 'bookexpo-static-v5';
 const OFFLINE_ASSETS = [
-  '/',
   '/static/css/main.css',
   '/static/js/base.js',
-  '/static/js/admin_dashboard.js'
+  '/static/js/admin_dashboard.js',
+  '/static/site.webmanifest',
+  '/static/images/exis-logo-mark.svg',
+  '/static/images/exis-icon-192.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -34,7 +36,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for static assets to keep them fresh.
+  // Network-first for static assets only. Form/API writes are never queued offline.
   event.respondWith(
     fetch(request)
       .then((resp) => {

@@ -86,6 +86,57 @@
 
   window.toggleAdvanced = toggleAdvanced;
 
+  function bindDeclarativeActions() {
+    if (window._declarativeActionsBound) return;
+    document.addEventListener('click', (event) => {
+      const trigger = event.target.closest('[data-ui-action]');
+      if (!trigger) return;
+
+      const action = trigger.dataset.uiAction;
+      const title = trigger.dataset.title || '';
+      const invoke = (fn, ...args) => {
+        if (typeof fn === 'function') {
+          event.preventDefault();
+          fn(...args);
+          return true;
+        }
+        return false;
+      };
+
+      if (action === 'toggle-advanced') {
+        event.preventDefault();
+        toggleAdvanced();
+      } else if (action === 'close-notif') {
+        invoke(closeNotif);
+      } else if (action === 'handle-add-book') {
+        invoke(handleAddBook);
+      } else if (action === 'handle-cabinet-manager') {
+        invoke(handleCabinetManager);
+      } else if (action === 'navigate') {
+        const href = trigger.dataset.href;
+        if (href) {
+          event.preventDefault();
+          window.location.href = href;
+        }
+      } else if (action === 'open-book-modal') {
+        invoke(window.openBookModal, title);
+      } else if (action === 'open-cabinet-modal') {
+        invoke(window.openCabinetModal, title);
+      } else if (action === 'close-cabinet-modal') {
+        invoke(window.closeCabinetModal);
+      } else if (action === 'close-add-book-modal') {
+        invoke(window.closeAddBookModal);
+      } else if (action === 'close-cabinet-manager') {
+        invoke(window.closeCabinetManager);
+      } else if (action === 'close-cabinet-books-modal') {
+        invoke(window.closeCabinetBooksModal);
+      } else if (action === 'close-move-book-modal') {
+        invoke(window.closeMoveBookModal);
+      }
+    });
+    window._declarativeActionsBound = true;
+  }
+
   function resetAdminSearchForm() {
     const form = document.getElementById('admin-search-form');
     if (!form) return;
@@ -345,10 +396,42 @@
       aboutBtn.addEventListener('click', openAboutModal);
     }
   document.querySelectorAll('[data-issue-form]').forEach((form) => {
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
-      closeFooterModals();
-      alert('Report Sent!');
+      const submitBtn = form.querySelector('button[type="submit"]');
+      const status = form.querySelector('[data-issue-status]');
+      const formData = new FormData(form);
+      const payload = Object.fromEntries(formData.entries());
+      if (submitBtn) submitBtn.disabled = true;
+      if (status) status.textContent = '送出中...';
+      try {
+        const res = await fetch('/api/report_issue', {
+          method: 'POST',
+          headers: {
+            ...headersWithCsrf(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          const message = data.message || '回報送出失敗，請稍後再試。';
+          if (status) status.textContent = message;
+          showToast(message, false);
+          return;
+        }
+        form.reset();
+        if (status) status.textContent = data.message || '回報已送出。';
+        showToast(data.message || '回報已送出。', true);
+        setTimeout(closeFooterModals, 700);
+      } catch (err) {
+        console.error(err);
+        const message = '目前無法送出回報，請確認網路連線後再試。';
+        if (status) status.textContent = message;
+        showToast(message, false);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
     });
   });
   const footerStatusBtn = document.getElementById('footer-status-btn');
@@ -458,7 +541,14 @@
   }
 
   function initVenueMap() {
-    const cabinets = Array.isArray(window.ACTIVE_CABINETS) ? window.ACTIVE_CABINETS : [];
+    const modal = document.getElementById('venue-map-modal');
+    let cabinets = [];
+    try {
+      cabinets = JSON.parse(modal?.dataset.activeCabinets || '[]');
+    } catch (err) {
+      cabinets = [];
+    }
+    cabinets = Array.isArray(cabinets) ? cabinets : [];
     const zones = buildVenueZones(cabinets);
     renderVenueZones(zones);
     renderVenuePins(zones);
@@ -1035,14 +1125,10 @@
       const data = await res.json();
       const events = Array.isArray(data?.events) ? data.events : [];
       if (!events.length) {
+        const section = document.getElementById('events-section');
+        if (section) section.remove();
         track.innerHTML = '';
-        track.appendChild(buildEventSlide({
-          title: '近期沒有活動',
-          time_text: '',
-          description: '目前沒有排程活動，請稍後再查看。',
-          books: [],
-        }));
-        setEventIndex(track, 0);
+        dots.innerHTML = '';
         return;
       }
       track.innerHTML = '';
@@ -1283,22 +1369,11 @@
   function setupOfflineBanner() {
     const banner = document.createElement('div');
     banner.className = 'offline-banner';
-    banner.textContent = '⚡ Offline - changes queued until connection returns';
-    banner.style.position = 'fixed';
-    banner.style.bottom = '12px';
-    banner.style.left = '12px';
-    banner.style.right = '12px';
-    banner.style.zIndex = '9999';
-    banner.style.background = '#1f2937';
-    banner.style.color = '#f9fafb';
-    banner.style.padding = '12px 16px';
-    banner.style.borderRadius = '8px';
-    banner.style.display = 'none';
-    banner.style.boxShadow = '0 10px 30px rgba(0,0,0,0.2)';
+    banner.textContent = '目前離線：系統只提供已快取的靜態資源，新增或修改不會排隊，請連線後再操作。';
     document.body.appendChild(banner);
 
     const toggle = (offline) => {
-      banner.style.display = offline ? 'flex' : 'none';
+      banner.classList.toggle('is-visible', offline);
     };
 
     window.addEventListener('offline', () => toggle(true));
@@ -1441,6 +1516,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    bindDeclarativeActions();
     resetAdminSearchForm();
     bindEscapeToCloseModals();
     document.addEventListener('click', handleNotificationTabs);

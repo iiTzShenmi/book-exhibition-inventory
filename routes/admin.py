@@ -28,6 +28,40 @@ from app import (
 admin_bp = Blueprint("admin", __name__)
 
 
+def _current_admin_user():
+    if not session.get("is_admin"):
+        return None
+    admin_id = session.get("admin_id")
+    if admin_id:
+        user = AdminUser.query.get(admin_id)
+        if user:
+            return user
+    username = session.get("admin_user")
+    if username:
+        return AdminUser.query.filter_by(username=username).first()
+    return None
+
+
+def _role_allows(role: str | None, allowed_roles: set[str]) -> bool:
+    role = role or "admin"
+    if role == "advance-admin":
+        return True
+    return role in allowed_roles
+
+
+def _require_roles(*roles: str, json_response: bool = False):
+    user = _current_admin_user()
+    if not user:
+        if json_response:
+            return None, (jsonify({"success": False, "message": "未登入"}), 401)
+        return None, redirect(url_for("auth.login"))
+    if not _role_allows(user.role, set(roles)):
+        if json_response:
+            return None, (jsonify({"success": False, "message": "權限不足"}), 403)
+        return None, redirect(url_for("admin.dashboard"))
+    return user, None
+
+
 def _parse_book_ids(raw_value: str):
     if not raw_value:
         return []
@@ -220,15 +254,11 @@ def dashboard():
         )
 
     alerts = collect_replenish_alerts()
-    replenish_alerts = [alert for alert in alerts if alert.get("type") == "low-stock"]
-    top_viewed_books = (
-        BookTitle.query
-        .filter(BookTitle.view_count.isnot(None))
-        .filter(BookTitle.view_count > 0)
-        .order_by(BookTitle.view_count.desc(), BookTitle.title.asc())
-        .limit(10)
-        .all()
-    )
+    alert_priority = {"out-of-stock": 0, "low-stock": 1}
+    dashboard_alerts = sorted(
+        [alert for alert in alerts if alert.get("type") in alert_priority],
+        key=lambda alert: alert_priority.get(alert.get("type"), 99),
+    )[:10]
 
     all_cabinets = Cabinet.query.order_by(Cabinet.name).all()
     cabinets_payload = [cabinet_to_dict(cab) for cab in all_cabinets]
@@ -245,8 +275,7 @@ def dashboard():
         audit_logs=audit_logs,
         has_search=has_search,
         authors=authors,
-        replenish_alerts=replenish_alerts,
-        top_viewed_books=top_viewed_books,
+        dashboard_alerts=dashboard_alerts,
     )
 
 
@@ -283,18 +312,19 @@ def system_page():
     if not session.get("is_admin"):
         return redirect(url_for("auth.login"))
 
-    admin_user = None
-    admin_id = session.get("admin_id")
-    if admin_id:
-        admin_user = AdminUser.query.get(admin_id)
-    can_upload = bool(admin_user and admin_user.role in {"advance-admin"})
+    admin_user = _current_admin_user()
+    can_view_sensitive = bool(admin_user and _role_allows(admin_user.role, {"advance-admin"}))
+    can_upload = can_view_sensitive
 
-    logs = (
-        AuditLog.query.order_by(AuditLog.created_at.desc())
-        .limit(200)
-        .all()
-    )
-    recent_backups = BackupArchive.query.order_by(BackupArchive.created_at.desc()).limit(5).all()
+    logs = []
+    recent_backups = []
+    if can_view_sensitive:
+        logs = (
+            AuditLog.query.order_by(AuditLog.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        recent_backups = BackupArchive.query.order_by(BackupArchive.created_at.desc()).limit(5).all()
 
     return render_template(
         "admin_system.html",
@@ -302,14 +332,16 @@ def system_page():
         audit_logs=logs,
         recent_backups=recent_backups,
         can_upload=can_upload,
+        can_view_sensitive=can_view_sensitive,
         show_top_sellers=False,
     )
 
 
 @admin_bp.route("/admin/backups")
 def backup_page():
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
+    _, response = _require_roles("advance-admin")
+    if response:
+        return response
     return redirect(url_for("admin.system_page"))
 
 
@@ -317,8 +349,9 @@ def backup_page():
 
 @admin_bp.route("/admin/audit")
 def audit_page():
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
+    _, response = _require_roles("advance-admin")
+    if response:
+        return response
 
     logs = (
         AuditLog.query.order_by(AuditLog.created_at.desc())
@@ -335,15 +368,17 @@ def audit_page():
 
 @admin_bp.route("/admin/backup", methods=["POST"])
 def admin_backup():
-    if not session.get("is_admin"):
-        return jsonify({"success": False, "message": "未登入"}), 401
+    _, response = _require_roles("advance-admin", json_response=True)
+    if response:
+        return response
     try:
         new_backup = _create_backup_archive(note="Manual backup")
         log_action("create_db_backup", target="system", details=f"saved {new_backup.filename} to DB")
         db.session.commit()
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"success": False, "message": f"備份失敗: {str(e)}"}), 500
+        current_app.logger.exception("manual database backup failed")
+        return jsonify({"success": False, "message": "備份失敗，請稍後再試。"}), 500
     return jsonify({
         "success": True,
         "message": "備份已成功儲存至資料庫",
@@ -354,17 +389,9 @@ def admin_backup():
 
 @admin_bp.route("/admin/import/preview", methods=["POST"])
 def admin_import_preview():
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
-
-    admin_user = None
-    admin_id = session.get("admin_id")
-    if admin_id:
-        admin_user = AdminUser.query.get(admin_id)
-    if not admin_user:
-        return redirect(url_for("admin.system_page"))
-    if admin_user.role not in {"advance-admin"}:
-        return redirect(url_for("admin.system_page"))
+    _, response = _require_roles("advance-admin")
+    if response:
+        return response
 
     upload = request.files.get("csv_file")
     if not upload or not upload.filename:
@@ -372,8 +399,18 @@ def admin_import_preview():
     if not upload.filename.lower().endswith(".csv"):
         return redirect(url_for("admin.system_page"))
 
+    max_upload_bytes = current_app.config.get("MAX_CONTENT_LENGTH") or (5 * 1024 * 1024)
+    raw_upload = upload.read()
+    if len(raw_upload) > max_upload_bytes:
+        current_app.logger.warning(
+            "CSV upload rejected because it exceeded MAX_CONTENT_LENGTH: size=%s max=%s",
+            len(raw_upload),
+            max_upload_bytes,
+        )
+        return redirect(url_for("admin.system_page"))
+
     try:
-        csv_text = upload.read().decode("utf-8-sig")
+        csv_text = raw_upload.decode("utf-8-sig")
     except UnicodeDecodeError:
         return redirect(url_for("admin.system_page"))
     if not csv_text.strip():
@@ -592,17 +629,9 @@ def admin_import_preview():
 
 @admin_bp.route("/admin/import", methods=["POST"])
 def admin_import():
-    if not session.get("is_admin"):
-        return jsonify({"success": False, "message": "未登入"}), 401
-
-    admin_user = None
-    admin_id = session.get("admin_id")
-    if admin_id:
-        admin_user = AdminUser.query.get(admin_id)
-    if not admin_user:
-        return jsonify({"success": False, "message": "無法確認帳號"}), 403
-    if admin_user.role not in {"advance-admin"}:
-        return jsonify({"success": False, "message": "權限不足"}), 403
+    admin_user, response = _require_roles("advance-admin", json_response=True)
+    if response:
+        return response
 
     confirm_text = (request.form.get("confirm_text") or "").strip().upper()
     if confirm_text != "IMPORT":
@@ -698,9 +727,10 @@ def admin_import():
             backup = _create_backup_archive(note="Auto backup before import")
             log_action("import_start", target=admin_user.username, details=f"backup={backup.filename}")
             db.session.commit()
-        except Exception as exc:
+        except Exception:
             db.session.rollback()
-            return jsonify({"success": False, "message": f"自動備份失敗: {exc}"}), 500
+            current_app.logger.exception("automatic backup before import failed")
+            return jsonify({"success": False, "message": "自動備份失敗，請稍後再試。"}), 500
 
         summary = sync_csv_to_db(csv_text=csv_text, force=True, remove_missing=False)
         meta_path = preview.get("meta_path")
@@ -752,9 +782,10 @@ def admin_import():
         )
         log_action("import_csv", target=admin_user.username, details=details)
         db.session.commit()
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"success": False, "message": f"匯入失敗: {str(e)}"}), 500
+        current_app.logger.exception("CSV import failed")
+        return jsonify({"success": False, "message": "匯入失敗，請稍後再試。"}), 500
     finally:
         try:
             os.remove(file_path)
@@ -783,15 +814,9 @@ def admin_import():
 
 @admin_bp.route("/admin/import/warnings")
 def admin_import_warnings():
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
-
-    admin_user = None
-    admin_id = session.get("admin_id")
-    if admin_id:
-        admin_user = AdminUser.query.get(admin_id)
-    if not admin_user or admin_user.role not in {"advance-admin"}:
-        return redirect(url_for("admin.system_page"))
+    _, response = _require_roles("advance-admin")
+    if response:
+        return response
 
     preview = session.get("import_preview") or {}
     warnings_path = preview.get("warnings_path")
@@ -812,17 +837,9 @@ def admin_import_warnings():
 
 @admin_bp.route("/admin/import/metadata", methods=["POST"])
 def admin_import_metadata():
-    if not session.get("is_admin"):
-        return jsonify({"success": False, "message": "未登入"}), 401
-
-    admin_user = None
-    admin_id = session.get("admin_id")
-    if admin_id:
-        admin_user = AdminUser.query.get(admin_id)
-    if not admin_user:
-        return jsonify({"success": False, "message": "無法確認帳號"}), 403
-    if admin_user.role not in {"advance-admin"}:
-        return jsonify({"success": False, "message": "權限不足"}), 403
+    _, response = _require_roles("advance-admin", json_response=True)
+    if response:
+        return response
 
     data = request.get_json(silent=True) or {}
     token = (data.get("token") or "").strip()
@@ -840,8 +857,9 @@ def admin_import_metadata():
     try:
         from tools.fetch_author import fetch_author_for_title
         from tools.fetch_cover_url import fetch_url_for_title
-    except Exception as exc:
-        return jsonify({"success": False, "message": f"無法啟動抓取器: {exc}"}), 500
+    except Exception:
+        current_app.logger.exception("failed to import metadata fetchers")
+        return jsonify({"success": False, "message": "無法啟動抓取器，請稍後再試。"}), 500
 
     limit = data.get("limit")
     try:
@@ -961,6 +979,9 @@ def admin_events():
         return redirect(url_for("auth.login"))
 
     if request.method == "POST":
+        _, response = _require_roles("manager")
+        if response:
+            return response
         title = (request.form.get("title") or "").strip()
         date_start_raw = (request.form.get("date_start") or "").strip()
         date_end_raw = (request.form.get("date_end") or "").strip()
@@ -992,19 +1013,23 @@ def admin_events():
             db.session.commit()
         return redirect(url_for("admin.admin_events"))
 
+    admin_user = _current_admin_user()
+    can_manage_events = bool(admin_user and _role_allows(admin_user.role, {"manager"}))
     events = EventSchedule.query.order_by(EventSchedule.display_order.asc(), EventSchedule.updated_at.desc()).all()
     return render_template(
         "admin_events.html",
         title="活動管理",
         events=events,
+        can_manage_events=can_manage_events,
         show_top_sellers=False,
     )
 
 
 @admin_bp.route("/admin/events/<int:event_id>/update", methods=["POST"])
 def update_event(event_id):
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
+    _, response = _require_roles("manager")
+    if response:
+        return response
     event = EventSchedule.query.get_or_404(event_id)
     title = (request.form.get("title") or "").strip()
     date_start_raw = (request.form.get("date_start") or "").strip()
@@ -1039,8 +1064,9 @@ def update_event(event_id):
 
 @admin_bp.route("/admin/events/<int:event_id>/delete", methods=["POST"])
 def delete_event(event_id):
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
+    _, response = _require_roles("manager")
+    if response:
+        return response
     event = EventSchedule.query.get_or_404(event_id)
     title = event.title
     db.session.delete(event)
@@ -1051,8 +1077,9 @@ def delete_event(event_id):
 
 @admin_bp.route("/admin/events/reorder", methods=["POST"])
 def reorder_events():
-    if not session.get("is_admin"):
-        return jsonify({"success": False, "message": "未登入"}), 401
+    _, response = _require_roles("manager", json_response=True)
+    if response:
+        return response
     data = request.get_json(silent=True) or {}
     ids = data.get("ids") or []
     if not isinstance(ids, list):
@@ -1072,8 +1099,9 @@ def reorder_events():
 
 @admin_bp.route("/admin/audit/export")
 def export_audit_csv():
-    if not session.get("is_admin"):
-        return redirect(url_for("auth.login"))
+    _, response = _require_roles("advance-admin")
+    if response:
+        return response
 
     logs = AuditLog.query.order_by(AuditLog.created_at.desc()).all()
     output = io.StringIO()

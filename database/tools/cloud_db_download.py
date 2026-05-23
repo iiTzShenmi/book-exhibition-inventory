@@ -12,6 +12,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 import sys
+from urllib.parse import urlparse, urlunparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -29,6 +30,21 @@ def resolve_output_path(user_path: str | None) -> Path:
     return default_dir / f"render_postgres_dump_{timestamp}.sql"
 
 
+def mask_uri(uri: str) -> str:
+    try:
+        parsed = urlparse(uri)
+        user = parsed.username or ""
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        cred = user
+        if user and parsed.password:
+            cred += ":****"
+        netloc = f"{cred}@{host}{port}" if cred else f"{host}{port}"
+        return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        return "<masked-db-uri>"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Download cloud Postgres to a local dump via pg_dump.")
     parser.add_argument("--output", help="Path to write the dump file (default: database/backups/<timestamp>.sql)")
@@ -39,7 +55,7 @@ def main() -> int:
         print("[error] DATABASE_URL is not set; nothing to download.")
         return 1
     if not db_url.startswith(("postgres://", "postgresql://")):
-        print(f"[error] DATABASE_URL does not look like Postgres: {db_url}")
+        print(f"[error] DATABASE_URL does not look like Postgres: {mask_uri(db_url)}")
         return 1
 
     output_path = resolve_output_path(args.output)

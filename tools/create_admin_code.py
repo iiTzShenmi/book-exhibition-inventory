@@ -4,7 +4,7 @@ Usage (repo root):
   python tools/create_admin_code.py --memo "for Alice"
   python tools/create_admin_code.py --memo "for Alice" --sqlite-ok   # allow writing to local SQLite
 
-Prints the generated code so you can share it with the admin.
+Prints the generated code once so you can share it with the admin.
 """
 import argparse
 import os
@@ -18,8 +18,20 @@ if ROOT_DIR not in sys.path:
 
 from tools import env_loader  # loads .env into os.environ
 
-from app import app, db, generate_invite_code, ensure_admin_email_column
+from app import (
+    app,
+    db,
+    generate_invite_code,
+    hash_invite_code,
+    invite_code_lookup,
+    invite_reference,
+    ensure_admin_email_column,
+    migrate_plaintext_invite_codes,
+)
 from database.models import AdminInvite
+
+
+ALLOWED_ROLES = {"admin", "manager", "advance-admin"}
 
 
 def masked_db(uri: str) -> str:
@@ -66,14 +78,24 @@ def main():
 
     print(f"[info] Target DB: {masked_db(db_uri)}")
 
-    code = generate_invite_code()
-    print(f"[step] generated invite code: {code}")
+    if args.role not in ALLOWED_ROLES:
+        print(f"[error] role must be one of: {', '.join(sorted(ALLOWED_ROLES))}")
+        return 1
+
+    code = generate_invite_code(14)
     with app.app_context():
         print("[step] ensuring tables exist...")
         db.create_all()
         ensure_admin_email_column()
+        migrate_plaintext_invite_codes()
         print("[step] inserting invite into DB...")
-        invite = AdminInvite(code=code, memo=args.memo, role=args.role)
+        invite = AdminInvite(
+            code=invite_reference(),
+            code_hash=hash_invite_code(code),
+            code_lookup=invite_code_lookup(code),
+            memo=args.memo,
+            role=args.role,
+        )
         db.session.add(invite)
         db.session.commit()
         total = AdminInvite.query.count()
@@ -87,7 +109,7 @@ def main():
     if total is not None:
         print(f"[info] admin_invite row count: {total}")
         if latest:
-            print(f"[info] latest invite id={latest.id} code={latest.code} memo={latest.memo or '-'} created={latest.created_at}")
+            print(f"[info] latest invite id={latest.id} role={latest.role} memo={latest.memo or '-'} created={latest.created_at}")
     return 0
 
 

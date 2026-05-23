@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-
 /*
   Public EXIS visual refresh.
   Scope every rule away from admin so current admin workflows/styles stay intact.
@@ -675,6 +673,7 @@ body:not(.is-admin) .footer-links h4 {
 }
 
 body:not(.is-admin) .footer-links a:hover,
+body:not(.is-admin) .footer-link-button:hover,
 body:not(.is-admin) .highlight-link {
   color: #ffffff;
 }
@@ -1612,4 +1611,18 @@ body:not(.is-admin) .result-card.has-cover:not(.show-info) .cover-pop {
   body:not(.is-admin) .result-card.has-cover:not(.show-info) .cover-pop {
     animation: none;
   }
+}
+
+body.search-page:not(.is-admin) .hero {
+  padding: 12px 0 12px;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+body.search-page:not(.is-admin) .page-content {
+  padding-top: 12px;
+}
+
+body.search-page:not(.is-admin) .content-section {
+  margin-top: 0;
 }

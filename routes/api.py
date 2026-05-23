@@ -1,11 +1,12 @@
 from collections import defaultdict
 from datetime import datetime
+import json
 import time
 
 from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, render_template_string, request, send_from_directory, session, url_for
 from sqlalchemy import func, or_
 
-from database.models import Book, BookTitle, Cabinet, EventSchedule, db
+from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, db
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 from app import (
     active_books_query,
@@ -16,10 +17,48 @@ from app import (
     get_csrf_token,
     log_action,
     is_postgres,
+    limiter,
 )
 
 
 api_bp = Blueprint("api", __name__)
+
+
+@api_bp.route("/api/report_issue", methods=["POST"])
+@limiter.limit("10 per hour")
+def report_issue():
+    """Persist footer issue reports instead of showing a fake success message."""
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()[:80]
+    issue_type = (payload.get("type") or "").strip()[:40]
+    description = (payload.get("description") or "").strip()[:1200]
+    allowed_types = {"bug", "data", "performance", "other"}
+
+    if not name or issue_type not in allowed_types or not description:
+        return jsonify({"success": False, "message": "請完整填寫回報內容。"}), 400
+
+    details = {
+        "name": name,
+        "type": issue_type,
+        "description": description,
+        "path": request.headers.get("Referer", "")[:255],
+    }
+    try:
+        db.session.add(
+            AuditLog(
+                actor=session.get("admin_user") or "public",
+                action="issue_report",
+                target=issue_type,
+                details=json.dumps(details, ensure_ascii=False),
+            )
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("issue report submission failed")
+        return jsonify({"success": False, "message": "回報送出失敗，請稍後再試。"}), 500
+
+    return jsonify({"success": True, "message": "回報已送出，工作人員會於操作紀錄中查看。"})
 
 
 @api_bp.route("/search")
@@ -188,10 +227,8 @@ def search():
                     suggestion_count += 1
                     if suggestion_count >= 5:
                         break
-    except Exception as e:
-        print(f"[similarity] Error generating suggestions: {e}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
+        current_app.logger.exception("similarity suggestions failed")
 
     all_cabinets = Cabinet.query.order_by(Cabinet.name.asc()).all()
     all_cabinets_data = [cabinet_to_dict(cabinet) for cabinet in all_cabinets]
@@ -466,9 +503,10 @@ def toggle_modal_stock(id):
             book.deleted_at = None
         db.session.commit()
         log_action("toggle_modal_stock", target=title, details=f"in_stock={book.in_stock}")
-    except Exception as e:
+    except Exception:
         db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+        current_app.logger.exception("modal stock toggle failed")
+        return jsonify({"success": False, "message": "操作失敗，請稍後再試。"}), 500
 
     status_text = "在庫" if book.in_stock else "缺貨"
     return jsonify({

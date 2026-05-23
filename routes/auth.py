@@ -5,7 +5,7 @@ from flask import Blueprint, redirect, render_template, request, session, url_fo
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.models import AdminInvite, AdminUser, db
-from app import log_action, limiter
+from app import find_valid_invite, log_action, limiter
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -23,6 +23,7 @@ def login():
             session["is_admin"] = True
             session["admin_user"] = user.username
             session["admin_id"] = user.id
+            session["admin_role"] = user.role or "admin"
             session.setdefault("csrf_token", secrets.token_urlsafe(32))
             session.permanent = True
             try:
@@ -66,7 +67,7 @@ def register():
         elif AdminUser.query.filter_by(email=email).first():
             error = "此 Email 已存在"
         else:
-            invite = AdminInvite.query.filter_by(code=sec_code, used_at=None).first()
+            invite = find_valid_invite(sec_code)
             if not invite:
                 error = "安全碼無效或已使用，請向網站擁有者確認"
             else:
@@ -79,12 +80,13 @@ def register():
                 )
                 db.session.add(user)
                 invite.used_at = datetime.utcnow()
-                log_action("register_admin", target=username, details=f"email={email}")
+                log_action("register_admin", target=username, details=f"role={role}")
                 db.session.commit()
 
                 session["is_admin"] = True
                 session["admin_user"] = user.username
                 session["admin_id"] = user.id
+                session["admin_role"] = user.role or "admin"
                 session.setdefault("csrf_token", secrets.token_urlsafe(32))
                 try:
                     log_action("login_success", target=user.username, details="auto after register")
@@ -96,11 +98,14 @@ def register():
     return render_template("register.html", title="Admin Register", error=error)
 
 
-@auth_bp.route("/logout")
+@auth_bp.route("/logout", methods=["POST"])
 def logout():
     actor = session.get("admin_user") or "unknown"
     if session.get("is_admin"):
-        log_action("logout", target=actor)
-        db.session.commit()
+        try:
+            log_action("logout", target=actor)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
     session.clear()
     return redirect(url_for("inventory.home"))

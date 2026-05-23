@@ -1,4 +1,114 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/vendor/manrope-400.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/vendor/manrope-500.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/vendor/manrope-600.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Manrope';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/vendor/manrope-700.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/vendor/inter-400.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/vendor/inter-500.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/vendor/inter-600.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/vendor/inter-700.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('../fonts/vendor/inter-800.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('../fonts/vendor/inter-900.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/vendor/noto-sans-tc-400.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/vendor/noto-sans-tc-500.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../fonts/vendor/noto-sans-tc-700.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Noto Sans TC';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('../fonts/vendor/noto-sans-tc-900.ttf') format('truetype');
+}
 
 .sr-only {
   position: absolute;
@@ -40,6 +150,43 @@ body {
   color: var(--text);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+.u-hidden {
+  display: none;
+}
+
+.u-m-0 {
+  margin: 0;
+}
+
+.u-mt-6 {
+  margin-top: 6px;
+}
+
+.u-mt-10 {
+  margin: 10px 0 0;
+}
+
+.offline-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #1f2937;
+  color: #f9fafb;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  font-weight: 700;
+}
+
+.offline-banner.is-visible {
+  display: flex;
 }
 
 html {
@@ -345,6 +492,15 @@ a {
 .logout-btn,
 .login-btn {
   text-decoration: none;
+}
+
+.logout-form,
+.footer-logout-form {
+  margin: 0;
+}
+
+.logout-form {
+  width: 100%;
 }
 
 /* Hero */
@@ -3205,6 +3361,25 @@ body:not(.is-admin) .info-hub {
 }
 
 .footer-links a:hover {
+  color: #fff;
+  transform: translateX(4px);
+}
+
+.footer-link-button {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #a0a0a0;
+  text-align: left;
+  font: inherit;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: color 0.2s, transform 0.2s;
+}
+
+.footer-link-button:hover {
   color: #fff;
   transform: translateX(4px);
 }

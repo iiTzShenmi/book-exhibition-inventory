@@ -131,6 +131,8 @@ class AdminInvite(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    code_hash = db.Column(db.String(255), nullable=True)
+    code_lookup = db.Column(db.String(64), nullable=True, index=True)
     memo = db.Column(db.String(255))
     role = db.Column(db.String(50), nullable=False, default="admin")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

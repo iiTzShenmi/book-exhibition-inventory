@@ -25,6 +25,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List
 import sys
+from urllib.parse import urlparse, urlunparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -71,6 +72,22 @@ def connect_sqlite(path: Path):
 def connect_postgres(url: str):
     engine = create_engine(url, future=True, connect_args={"options": "-c client_encoding=UTF8"})
     return engine
+
+
+def mask_uri(uri: str) -> str:
+    """Hide credentials before writing database URLs to logs."""
+    try:
+        parsed = urlparse(uri)
+        user = parsed.username or ""
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        cred = user
+        if user and parsed.password:
+            cred += ":****"
+        netloc = f"{cred}@{host}{port}" if cred else f"{host}{port}"
+        return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        return "<masked-db-uri>"
 
 
 def truncate_tables(engine, tables):
@@ -206,7 +223,7 @@ def main():
     args = parser.parse_args()
 
     print(f"Using SQLite: {SQLITE_PATH}")
-    print(f"Using Postgres: {DATABASE_URL}\n")
+    print(f"Using Postgres: {mask_uri(DATABASE_URL)}\n")
 
     sqlite_conn = connect_sqlite(SQLITE_PATH)
 

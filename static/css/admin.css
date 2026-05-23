@@ -2041,6 +2041,62 @@
   background: rgba(248, 250, 252, 0.92);
 }
 
+.widget-alert-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.widget-alert-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.widget-alert-item--out-of-stock {
+  border-color: rgba(239, 68, 68, 0.24);
+  background: rgba(254, 242, 242, 0.9);
+}
+
+.widget-alert-item--low-stock {
+  border-color: rgba(245, 158, 11, 0.28);
+  background: rgba(255, 251, 235, 0.9);
+}
+
+.widget-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.widget-alert-item--out-of-stock .widget-alert-badge {
+  background: #dc2626;
+}
+
+.widget-alert-item--low-stock .widget-alert-badge {
+  background: #d97706;
+}
+
+.widget-alert-message {
+  color: #334155;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
 .action-tile {
   background: linear-gradient(180deg, #ffffff, #f8fafc);
   border-color: rgba(15, 23, 42, 0.1);

@@ -21,6 +21,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+from urllib.parse import urlparse, urlunparse
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,22 @@ def run_cmd(label: str, cmd: List[str], env: Optional[Dict[str, str]] = None, ve
     status = "OK" if proc.returncode == 0 else f"FAIL ({proc.returncode})"
     print(f"[done] {label}: {status}")
     return proc.returncode
+
+
+def mask_uri(uri: str) -> str:
+    """Hide credentials before writing database URLs to logs."""
+    try:
+        parsed = urlparse(uri)
+        user = parsed.username or ""
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        cred = user
+        if user and parsed.password:
+            cred += ":****"
+        netloc = f"{cred}@{host}{port}" if cred else f"{host}{port}"
+        return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:
+        return "<masked-db-uri>"
 
 
 def prompt_yes(question: str, default: bool = True) -> bool:
@@ -275,7 +292,7 @@ def ensure_clean(auto_fix: bool = False, verbose: bool = False) -> bool:
 def cmd_upload(args) -> int:
     """Upload SQLite to PostgreSQL."""
     print(f"Using SQLite: {SQLITE_PATH}")
-    print(f"Using Postgres: {DATABASE_URL}\n")
+    print(f"Using Postgres: {mask_uri(DATABASE_URL)}\n")
 
     # Check for duplicates
     sqlite_conn = connect_sqlite(SQLITE_PATH)

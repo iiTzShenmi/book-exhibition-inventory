@@ -2,7 +2,7 @@ import json
 import re
 from datetime import datetime
 
-from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
@@ -23,6 +23,12 @@ from app import (
 
 
 inventory_bp = Blueprint("inventory", __name__)
+
+
+def _operation_failed(log_message="inventory operation failed"):
+    db.session.rollback()
+    current_app.logger.exception(log_message)
+    return jsonify({"success": False, "message": "操作失敗，請稍後再試。"}), 500
 
 
 @inventory_bp.route("/")
@@ -53,6 +59,7 @@ def home():
         top_sellers=top_books_data,
         random_picks=random_picks_data,
         events=events,
+        show_events=bool(events),
         all_cabinets=all_cabinets_data,
     )
 
@@ -98,9 +105,8 @@ def modify_cabinet(title):
             db.session.add(cabinet)
             log_action("create_cabinet_from_book", target=cab_name, details=f"title={title}")
             db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+        except Exception:
+            return _operation_failed()
 
     if not cabinet:
         return jsonify({"success": False, "message": f"櫃位「{cab_name}」不存在"})
@@ -204,9 +210,8 @@ def modify_cabinet(title):
                 "cabinet_name": cab_name,
                 "title": title,
             })
-        except Exception as e:
-            db.session.rollback()
-            return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+        except Exception:
+            return _operation_failed()
 
 
 @inventory_bp.route("/cabinets", methods=["GET"])
@@ -304,9 +309,8 @@ def update_cabinet(cabinet_id):
             "cabinet": cabinet_to_dict(cabinet),
             "affected_titles": affected_titles,
         })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
 
 
 @inventory_bp.route("/cabinets/<int:cabinet_id>", methods=["DELETE"])
@@ -325,9 +329,8 @@ def delete_cabinet(cabinet_id):
         log_action("delete_cabinet", target=cabinet.name)
         db.session.commit()
         return jsonify({"success": True, "cabinet_id": cabinet_id, "deleted": deleted_payload})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
 
 
 @inventory_bp.route("/cabinets/<int:cabinet_id>/books", methods=["GET"])
@@ -368,9 +371,8 @@ def toggle_cabinet_book(cabinet_id, book_id):
         book.in_stock = not book.in_stock
         log_action("toggle_cabinet_book", target=title, details=f"cabinet_id={cabinet_id},in_stock={book.in_stock}")
         db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
     return jsonify(
         {
             "success": True,
@@ -412,9 +414,8 @@ def adjust_cabinet_book_quantity(cabinet_id, book_id):
         log_action("adjust_quantity", target=book.title, details=f"cabinet_id={cabinet_id},delta={delta} (quantity tracking removed)")
         db.session.commit()
         return jsonify({"success": True, "book": book_to_dict(book), "affected_titles": [book.title]})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
 
 
 @inventory_bp.route("/add_book", methods=["POST"])
@@ -488,9 +489,8 @@ def add_book():
                 "amount_added": 1,
                 "created": True,
             }), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
 
 
 @inventory_bp.route("/cabinets/<int:cabinet_id>/books/<int:book_id>/move", methods=["PATCH"])
@@ -541,9 +541,8 @@ def move_cabinet_book(cabinet_id, book_id):
     except IntegrityError:
         db.session.rollback()
         return jsonify({"success": False, "message": "該書已存在於目標櫃位，請重新整理後再試"}), 409
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
     return jsonify(
         {
             "success": True,
@@ -610,9 +609,8 @@ def replenish_from_reserve(title):
             "affected_titles": [title_obj.title],
             "book": book_to_dict(existing if existing else reserve_book),
         })
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
 
 
 @inventory_bp.route("/cabinets/<int:cabinet_id>/books/<int:book_id>", methods=["DELETE"])
@@ -632,9 +630,8 @@ def remove_cabinet_book(cabinet_id, book_id):
         book.in_stock = False
         log_action("remove_book_from_cabinet", target=title, details=f"cabinet_id={cabinet_id},archived=true")
         db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "message": f"操作失敗: {str(e)}"}), 500
+    except Exception:
+        return _operation_failed()
     return jsonify(
         {
             "success": True,
