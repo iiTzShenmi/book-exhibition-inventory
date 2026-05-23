@@ -61,6 +61,8 @@ python database/tools/db_sync.py diagnose        # compare local/cloud
 python database/tools/db_sync.py clean --purge-null --dedupe --auto-fix
 python database/tools/cloud_db_download.py --output database/backups/render_dump.sql
 
+# Concise local security regression checks
+pytest
 ```
 
 Key files:
@@ -178,3 +180,16 @@ Deployed on Render with:
 - Automatic backups
 - Pre-deploy command: `python -m database.tools.db_tools init-db --no-sync-csv`
 - Start command: `EXIS_AUTO_INIT=0 gunicorn app:app`
+
+## Testing / CI
+
+The test kit is intentionally quiet and precise:
+
+```bash
+pytest
+```
+
+CI runs:
+- Python compile checks for the main app/routes/tools
+- `pytest` with `-q --tb=short` from `pytest.ini`
+- `pip-audit -r requirements.txt --progress-spinner off`

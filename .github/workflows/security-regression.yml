@@ -1,0 +1,45 @@
+name: security-regression
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      EXIS_SKIP_STARTUP_INIT: "1"
+      DATABASE_URL: "sqlite:///:memory:"
+      FLASK_SECRET_KEY: test-ci-secret
+      APP_ENV: testing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install focused test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            Flask==3.0.0 \
+            Flask-SQLAlchemy==3.0.5 \
+            Flask-Limiter==3.8.0 \
+            Werkzeug==3.0.1 \
+            SQLAlchemy==2.0.44 \
+            redis==5.0.8 \
+            psycopg2-binary==2.9.9 \
+            pytest==8.3.3 \
+            rapidfuzz==3.14.3 \
+            requests==2.31.0 \
+            beautifulsoup4==4.12.3 \
+            pillow==12.0.0
+      - name: Compile Python
+        run: |
+          python -m py_compile app.py routes/auth.py routes/admin.py routes/inventory.py routes/api.py database/models.py tools/create_admin_code.py database/tools/db_tools.py
+      - name: Run regression tests
+        run: pytest
+      - name: Audit pinned dependencies
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r requirements.txt --progress-spinner off
