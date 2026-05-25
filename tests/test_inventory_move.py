@@ -1,7 +1,8 @@
 import pytest
 
 from app import app, db
-from database.models import Cabinet, BookTitle, Inventory
+from database.models import AdminUser, Cabinet, BookTitle, Inventory
+from werkzeug.security import generate_password_hash
 
 
 @pytest.fixture
@@ -24,7 +25,13 @@ def test_move_book_from_reserve_to_display(client):
     reserve = Cabinet(name="Reserve", type="reserve")
     display = Cabinet(name="Display", type="display")
     title = BookTitle(title="測試書籍", author="測試作者")
-    db.session.add_all([reserve, display, title])
+    admin = AdminUser(
+        username="move-admin",
+        email="move-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([reserve, display, title, admin])
     db.session.flush()
 
     book = Inventory(title_id=title.id, cabinet_id=reserve.id, in_stock=True, status="active")
@@ -33,6 +40,9 @@ def test_move_book_from_reserve_to_display(client):
 
     with client.session_transaction() as sess:
         sess["is_admin"] = True
+        sess["admin_user"] = admin.username
+        sess["admin_id"] = admin.id
+        sess["admin_role"] = admin.role
         sess["csrf_token"] = "testtoken"
 
     resp = client.patch(

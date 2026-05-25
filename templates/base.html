@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="allowed-cover-hosts" content="{{ (allowed_cover_hosts or []) | join(',') }}">
   <meta name="theme-color" content="#0f172a">
   <title>{{ title or "書展庫存系統" }}</title>
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='images/exis-logo-mark.svg') }}">
@@ -367,7 +368,7 @@
               <div class="ticket-icon">LINE</div>
               <div class="ticket-main">
                 <span class="promo-label">好友邀請</span>
-                <div class="promo-value"><small>折</small>20元</div>
+                <div class="promo-value"><small>折</small>20<small>元</small></div>
                 <span class="promo-sub">加入好友領取</span>
                 <span class="promo-note">點擊前往 LINE 邀請</span>
               </div>

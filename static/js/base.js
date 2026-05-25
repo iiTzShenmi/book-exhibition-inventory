@@ -1,6 +1,44 @@
 (() => {
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
   window.csrfToken = csrfToken;
+  const allowedCoverHosts = (document.querySelector('meta[name="allowed-cover-hosts"]')?.content || '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+
+  function coverHostMatches(hostname, pattern) {
+    const host = String(hostname || '').toLowerCase().replace(/\.$/, '');
+    const cleanPattern = String(pattern || '').toLowerCase().replace(/\.$/, '');
+    if (!host || !cleanPattern) return false;
+    if (cleanPattern.startsWith('*.')) {
+      const suffix = cleanPattern.slice(2);
+      return host.endsWith(`.${suffix}`);
+    }
+    return host === cleanPattern;
+  }
+
+  function isAllowedCoverUrl(url) {
+    if (!url) return false;
+    try {
+      const parsed = new URL(String(url), window.location.origin);
+      if (parsed.origin === window.location.origin) return true;
+      return parsed.protocol === 'https:'
+        && allowedCoverHosts.some((host) => coverHostMatches(parsed.hostname, host));
+    } catch (err) {
+      return false;
+    }
+  }
+
+  function createMuted(text) {
+    const node = document.createElement('div');
+    node.className = 'muted';
+    node.textContent = text;
+    return node;
+  }
+
+  window.EXIS = window.EXIS || {};
+  window.EXIS.isAllowedCoverUrl = isAllowedCoverUrl;
+  window.EXIS.allowedCoverHosts = allowedCoverHosts;
 
   window.addEventListener('pageshow', (event) => {
     try {
@@ -501,9 +539,9 @@
   function renderVenueZones(zones) {
     const container = document.getElementById('venue-map-zones');
     if (!container) return;
-    container.innerHTML = '';
+    container.replaceChildren();
     if (!zones.length) {
-      container.innerHTML = '<div class="muted">目前沒有可用櫃位。</div>';
+      container.appendChild(createMuted('目前沒有可用櫃位。'));
       return;
     }
     zones.forEach((zone) => {
@@ -512,7 +550,11 @@
       card.className = 'venue-zone-card';
       card.dataset.zone = zone.key;
       const subtitle = zone.cabinets.join('、');
-      card.innerHTML = `<strong>${zone.title}</strong><span>包含：${subtitle}</span>`;
+      const title = document.createElement('strong');
+      title.textContent = zone.title;
+      const details = document.createElement('span');
+      details.textContent = `包含：${subtitle}`;
+      card.append(title, details);
       container.appendChild(card);
     });
   }
@@ -520,7 +562,7 @@
   function renderVenuePins(zones) {
     const pins = document.getElementById('venue-map-pins');
     if (!pins) return;
-    pins.innerHTML = '';
+    pins.replaceChildren();
     zones.forEach((zone, idx) => {
       const pin = document.createElement('div');
       pin.className = 'venue-map-pin';
@@ -638,7 +680,7 @@
       const data = await res.json();
       const messages = Array.isArray(data?.messages) ? data.messages : [];
       const hasWork = typeof data?.has_work === 'boolean' ? data.has_work : messages.length > 0;
-      listEl.innerHTML = '';
+      listEl.replaceChildren();
       if (!messages.length) {
         statusEl.textContent = '目前沒有需要補貨的書籍。';
         setRealtimeWorker(hasWork);
@@ -710,7 +752,7 @@
     const box = document.getElementById('book-modal-box');
     if (!overlay || !box) return;
     overlay.style.display = 'none';
-    box.innerHTML = '';
+    box.replaceChildren();
   }
 
   window.openBookModal = openBookModal;
@@ -732,7 +774,7 @@
       titleEl.textContent = eventTitle ? `「${eventTitle}」相關書籍` : '相關書籍';
     }
 
-    listEl.innerHTML = '';
+    listEl.replaceChildren();
     if (!books.length) {
       const empty = document.createElement('div');
       empty.className = 'event-books-empty muted';
@@ -769,7 +811,7 @@
     listEl.appendChild(content);
 
     const renderSelector = (activeIndex) => {
-      selector.innerHTML = '';
+      selector.replaceChildren();
       if (books.length <= 1) {
         selector.style.display = 'none';
         return;
@@ -780,7 +822,7 @@
         btn.type = 'button';
         btn.className = `event-book-thumb${idx === activeIndex ? ' is-active' : ''}`;
         btn.setAttribute('aria-label', book?.title || '書籍');
-        if (book?.cover_url) {
+        if (isAllowedCoverUrl(book?.cover_url)) {
           const img = document.createElement('img');
           img.src = book.cover_url;
           img.alt = book.title || '';
@@ -796,17 +838,24 @@
     const renderBookMeta = (book) => {
       const titleText = book?.title || '未命名書籍';
       const authorText = book?.author || '';
-      meta.innerHTML = `
-        <div class="cover-meta-row">
-          <div class="cover-title">${titleText}</div>
-          ${authorText ? `<div class="cover-author">作者：${authorText}</div>` : ''}
-        </div>
-      `;
+      const row = document.createElement('div');
+      row.className = 'cover-meta-row';
+      const titleNode = document.createElement('div');
+      titleNode.className = 'cover-title';
+      titleNode.textContent = titleText;
+      row.appendChild(titleNode);
+      if (authorText) {
+        const authorNode = document.createElement('div');
+        authorNode.className = 'cover-author';
+        authorNode.textContent = `作者：${authorText}`;
+        row.appendChild(authorNode);
+      }
+      meta.replaceChildren(row);
     };
 
     const renderBookCover = (book) => {
-      coverCol.innerHTML = '';
-      if (book?.cover_url) {
+      coverCol.replaceChildren();
+      if (isAllowedCoverUrl(book?.cover_url)) {
         const img = document.createElement('img');
         img.className = 'cover-modal-img';
         img.src = book.cover_url;
@@ -821,9 +870,9 @@
     };
 
     const renderBookCabinets = async (book) => {
-      cabinets.innerHTML = '<div class="muted">載入櫃位中...</div>';
+      cabinets.replaceChildren(createMuted('載入櫃位中...'));
       if (!book?.title) {
-        cabinets.innerHTML = '<div class="muted">找不到書名</div>';
+        cabinets.replaceChildren(createMuted('找不到書名'));
         return;
       }
       try {
@@ -832,9 +881,9 @@
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
         const rows = Array.from(doc.querySelectorAll('.modal-row'));
-        cabinets.innerHTML = '';
+        cabinets.replaceChildren();
         if (!rows.length) {
-          cabinets.innerHTML = '<div class="muted">沒有可顯示的櫃位資訊</div>';
+          cabinets.replaceChildren(createMuted('沒有可顯示的櫃位資訊'));
           return;
         }
         rows.forEach((row) => {
@@ -863,7 +912,7 @@
         });
       } catch (err) {
         console.error(err);
-        cabinets.innerHTML = '<div class="muted">載入櫃位資訊失敗</div>';
+        cabinets.replaceChildren(createMuted('載入櫃位資訊失敗'));
       }
     };
 
@@ -966,7 +1015,7 @@
 
     const time = document.createElement('div');
     time.className = 'event-time';
-    time.innerHTML = '';
+    time.replaceChildren();
     const timeLabel = document.createElement('span');
     timeLabel.className = 'event-label';
     timeLabel.textContent = '時間';
@@ -1047,7 +1096,7 @@
       item.type = 'button';
       item.className = `showcase-book${idx === 0 ? ' is-primary' : ''}`;
       item.setAttribute('aria-label', book?.title ? `查看 ${book.title}` : '查看書籍');
-      if (book?.cover_url) {
+      if (isAllowedCoverUrl(book?.cover_url)) {
         const img = document.createElement('img');
         img.src = book.cover_url;
         img.alt = book.title || '';
@@ -1095,7 +1144,7 @@
   function renderEventDots(count, activeIdx) {
     const dots = document.getElementById('event-dots');
     if (!dots) return;
-    dots.innerHTML = '';
+    dots.replaceChildren();
     if (count <= 1) return;
     for (let i = 0; i < count; i++) {
       const btn = document.createElement('button');
@@ -1127,11 +1176,11 @@
       if (!events.length) {
         const section = document.getElementById('events-section');
         if (section) section.remove();
-        track.innerHTML = '';
-        dots.innerHTML = '';
+        track.replaceChildren();
+        dots.replaceChildren();
         return;
       }
-      track.innerHTML = '';
+      track.replaceChildren();
       const sortedEvents = [...events].sort((a, b) => {
         const aActive = isEventActive(a);
         const bActive = isEventActive(b);

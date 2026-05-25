@@ -118,8 +118,26 @@ app.config["SESSION_COOKIE_SECURE"] = env_flag("SESSION_COOKIE_SECURE", IS_HOSTE
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["MAX_CONTENT_LENGTH"] = env_int("MAX_UPLOAD_MB", 5) * 1024 * 1024
+trusted_hosts = [
+    host.strip()
+    for host in (
+        os.environ.get("TRUSTED_HOSTS")
+        or os.environ.get("EXIS_TRUSTED_HOSTS")
+        or ""
+    ).split(",")
+    if host.strip()
+]
+render_hostname = (os.environ.get("RENDER_EXTERNAL_HOSTNAME") or "").strip()
+if render_hostname and render_hostname not in trusted_hosts:
+    trusted_hosts.append(render_hostname)
+if trusted_hosts:
+    app.config["TRUSTED_HOSTS"] = trusted_hosts
 
 REDIS_URL = os.environ.get("REDIS_URL")
+REQUIRE_REDIS_RATE_LIMIT = (
+    env_flag("EXIS_REQUIRE_REDIS", IS_HOSTED_DEPLOY)
+    and not env_flag("EXIS_ALLOW_MEMORY_RATE_LIMIT", False)
+)
 redis_client = None
 _local_cache: dict[str, tuple[datetime, object]] = {}
 
@@ -129,7 +147,14 @@ if REDIS_URL:
         redis_client.ping()
         print(f"[cache] connected to redis at {mask_sensitive_uri(REDIS_URL)}")
     except Exception as err:
+        if REQUIRE_REDIS_RATE_LIMIT:
+            raise RuntimeError("REDIS_URL is required and must be reachable for hosted rate limiting") from err
         print(f"[cache] redis connection failed ({err}); falling back to in-process cache")
+elif REQUIRE_REDIS_RATE_LIMIT:
+    raise RuntimeError(
+        "REDIS_URL is required for hosted production rate limiting. "
+        "Set EXIS_ALLOW_MEMORY_RATE_LIMIT=1 only for a single-process emergency fallback."
+    )
 elif IS_HOSTED_DEPLOY:
     print("[cache] WARNING: REDIS_URL is not set; rate limiting uses per-process memory storage")
 
@@ -174,6 +199,21 @@ def parse_qty(value):
         return max(int(text_val), 0)
     except ValueError:
         return 0
+
+
+CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
+
+
+def csv_safe_cell(value) -> str:
+    """Prefix spreadsheet-formula-looking cells before writing human-opened CSVs."""
+    text_value = "" if value is None else str(value)
+    if text_value.lstrip(" \t\r\n").startswith(CSV_FORMULA_PREFIXES):
+        return f"\t{text_value}"
+    return text_value
+
+
+def csv_safe_row(values):
+    return [csv_safe_cell(value) for value in values]
 
 
 def sync_csv_to_db(
@@ -384,12 +424,12 @@ def export_db_to_csv():
             for inv in cab.books:
                 if getattr(inv, "status", "active") != "active":
                     continue
-                writer.writerow([
+                writer.writerow(csv_safe_row([
                     cab.name,
                     inv.title,
                     "True" if inv.in_stock else "False",
                     inv.author or "",
-                ])
+                ]))
     print("[export_db_to_csv] DB -> CSV export complete.")
 
 
@@ -831,14 +871,101 @@ def get_or_create_title(title, author=None):
 
 
 COVER_PLACEHOLDER_URL = "https://placehold.co/240x320?text=No+Cover"
+DEFAULT_ALLOWED_COVER_HOSTS = "cwgv.com.tw,*.cwgv.com.tw,placehold.co"
+
+
+def _normalize_cover_host_pattern(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    if not raw or raw == "*":
+        return ""
+    if "://" in raw:
+        parsed = urllib.parse.urlparse(raw)
+        raw = parsed.netloc or parsed.path
+    raw = raw.split("/", 1)[0].strip()
+    if not raw or raw == "*":
+        return ""
+    if raw.startswith("*."):
+        host = raw[2:]
+        return f"*.{host.strip('.')}" if host.strip(".") else ""
+    return raw.strip(".")
+
+
+ALLOWED_COVER_HOSTS = tuple(
+    dict.fromkeys(
+        pattern
+        for pattern in (
+            _normalize_cover_host_pattern(host)
+            for host in os.environ.get("ALLOWED_COVER_HOSTS", DEFAULT_ALLOWED_COVER_HOSTS).split(",")
+        )
+        if pattern
+    )
+)
+
+
+def _cover_host_allowed(host: str | None) -> bool:
+    clean_host = (host or "").strip().lower().strip(".")
+    if not clean_host:
+        return False
+    for pattern in ALLOWED_COVER_HOSTS:
+        if pattern.startswith("*."):
+            suffix = pattern[2:]
+            if clean_host.endswith(f".{suffix}"):
+                return True
+        elif clean_host == pattern:
+            return True
+    return False
+
+
+def cover_csp_sources() -> list[str]:
+    """Return CSP image sources generated from the configured cover host allowlist."""
+    sources = []
+    for pattern in ALLOWED_COVER_HOSTS:
+        if pattern.startswith("*."):
+            sources.append(f"https://*.{pattern[2:]}")
+        else:
+            sources.append(f"https://{pattern}")
+    return sources
+
+
+def is_allowed_cover_url(url: str | None) -> bool:
+    """Return True when a cover image URL comes from an approved HTTPS host."""
+    text_value = (url or "").strip()
+    if not text_value:
+        return False
+    if text_value.startswith("/") and not text_value.startswith("//"):
+        return True
+    try:
+        parsed = urllib.parse.urlparse(text_value)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and _cover_host_allowed(host)
+
+
+def normalize_cover_url(url: str | None) -> str:
+    """Return a safe cover URL, or an empty string when the source is not allowed."""
+    text_value = (url or "").strip()
+    if not text_value:
+        return ""
+    if text_value.startswith("/") and not text_value.startswith("//"):
+        return text_value
+    try:
+        parsed = urllib.parse.urlparse(text_value)
+    except Exception:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme == "http" and _cover_host_allowed(host):
+        return urllib.parse.urlunparse(parsed._replace(scheme="https"))
+    return text_value if parsed.scheme == "https" and _cover_host_allowed(host) else ""
 
 
 def cover_url_for_title(title_obj):
     """Return stored cover link or placeholder."""
     if not title_obj:
         return COVER_PLACEHOLDER_URL
-    if title_obj.cover_link:
-        return title_obj.cover_link
+    cover_url = normalize_cover_url(getattr(title_obj, "cover_link", ""))
+    if cover_url:
+        return cover_url
     return COVER_PLACEHOLDER_URL
 
 
@@ -1455,6 +1582,47 @@ def ensure_schema_migrations():
             print(f"[warning] Schema migration check failed: {e}")
             # Don't block requests, but log the error
 
+
+@app.before_request
+def enforce_admin_session_freshness():
+    """Invalidate admin sessions when the backing account was removed or changed."""
+    if request.endpoint and request.endpoint.startswith("static"):
+        return
+    if not session.get("is_admin"):
+        return
+
+    user = None
+    admin_id = session.get("admin_id")
+    try:
+        if admin_id:
+            user = AdminUser.query.get(admin_id)
+        if not user and session.get("admin_user"):
+            user = AdminUser.query.filter_by(username=session.get("admin_user")).first()
+    except Exception:
+        current_path = request.path or ""
+        admin_paths = (
+            "/admin",
+            "/api/",
+            "/cabinets",
+            "/modify_cabinet",
+            "/add_book",
+            "/replenish",
+            "/toggle",
+            "/book_card",
+        )
+        if current_path.startswith(admin_paths):
+            session.clear()
+        return
+
+    if not user:
+        session.clear()
+        return
+
+    session["admin_id"] = user.id
+    session["admin_user"] = user.username
+    session["admin_role"] = user.role or "admin"
+
+
 @app.before_request
 def csrf_protect():
     """Lightweight CSRF protection for all state-changing requests."""
@@ -1467,9 +1635,6 @@ def csrf_protect():
 
     token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
     session_token = session.get("csrf_token")
-    if not session_token and token:
-        session["csrf_token"] = token
-        session_token = token
     if not token or token != session_token:
         # For JSON requests, return JSON error
         if request.is_json or request.path.startswith('/api/') or request.path.startswith('/toggle_modal_stock') or request.path.startswith('/replenish'):
@@ -1498,6 +1663,7 @@ def handle_request_entity_too_large(error):
 
 
 def build_content_security_policy() -> str:
+    img_sources = " ".join(dict.fromkeys(["'self'", "data:", "blob:", *cover_csp_sources()]))
     directives = [
         "default-src 'self'",
         "script-src 'self'",
@@ -1506,7 +1672,7 @@ def build_content_security_policy() -> str:
         "style-src 'self'",
         "style-src-elem 'self'",
         "style-src-attr 'none'",
-        "img-src 'self' https: data: blob:",
+        f"img-src {img_sources}",
         "font-src 'self' data:",
         "connect-src 'self'",
         "frame-src 'none'",
@@ -1575,6 +1741,13 @@ def inject_is_admin():
 def inject_static_version():
     """Expose a safe static asset version string for cache busting."""
     return {"static_version": app.config.get("STATIC_VERSION", "")}
+
+
+@app.context_processor
+def inject_cover_policy():
+    """Expose the same cover host allowlist used by backend validation."""
+    return {"allowed_cover_hosts": list(ALLOWED_COVER_HOSTS)}
+
 
 @app.context_processor
 def inject_public_event_state():

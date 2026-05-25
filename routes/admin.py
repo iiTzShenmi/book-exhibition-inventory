@@ -5,6 +5,7 @@ import os
 import re
 import secrets
 import difflib
+import time
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -18,14 +19,40 @@ from app import (
     active_books_query,
     build_grouped_book_entries,
     cabinet_to_dict,
+    csv_safe_row,
     log_action,
     collect_replenish_alerts,
+    normalize_cover_url,
     parse_qty,
     sync_csv_to_db,
 )
 
 
 admin_bp = Blueprint("admin", __name__)
+
+
+IMPORT_ARTIFACT_MAX_AGE_SECONDS = 60 * 60
+
+
+def _import_artifact_dir() -> str:
+    return os.path.join(current_app.root_path, "database", "imports")
+
+
+def _cleanup_import_artifacts(max_age_seconds: int = IMPORT_ARTIFACT_MAX_AGE_SECONDS) -> None:
+    import_dir = _import_artifact_dir()
+    if not os.path.isdir(import_dir):
+        return
+    now_ts = time.time()
+    allowed_suffixes = (".csv", ".meta.json", ".warnings.csv")
+    for name in os.listdir(import_dir):
+        if not name.endswith(allowed_suffixes):
+            continue
+        path = os.path.join(import_dir, name)
+        try:
+            if now_ts - os.path.getmtime(path) > max_age_seconds:
+                os.remove(path)
+        except OSError:
+            continue
 
 
 def _current_admin_user():
@@ -94,14 +121,14 @@ def _create_backup_archive(note: str | None = None) -> BackupArchive:
     )
     count = 0
     for inv in inventories:
-        writer.writerow([
+        writer.writerow(csv_safe_row([
             inv.cabinet.name if inv.cabinet else "",
             inv.book_title.title if inv.book_title else "",
             "TRUE" if inv.in_stock else "FALSE",
             inv.book_title.author if inv.book_title and inv.book_title.author else "",
             inv.status,
             inv.updated_at.isoformat() if inv.updated_at else "",
-        ])
+        ]))
         count += 1
 
     csv_string = output.getvalue()
@@ -167,7 +194,7 @@ def add_book_preview():
         )
 
     author = (exact_match.author or "") if exact_match else ""
-    cover_url = (exact_match.cover_link or "") if exact_match else ""
+    cover_url = normalize_cover_url(exact_match.cover_link if exact_match else "")
     topics = parse_topics_field((exact_match.topics if exact_match else None)) or []
 
     if not author:
@@ -182,7 +209,7 @@ def add_book_preview():
         try:
             from tools.fetch_cover_url import fetch_url_for_title
             cover_url, _ = fetch_url_for_title(title)
-            cover_url = cover_url or ""
+            cover_url = normalize_cover_url(cover_url)
         except Exception:
             cover_url = ""
 
@@ -198,7 +225,7 @@ def add_book_preview():
         "success": True,
         "title": title,
         "author": author or "",
-        "cover_url": cover_url or "",
+        "cover_url": normalize_cover_url(cover_url),
         "topics": topics or [],
         "exact_match_title": exact_match.title if exact_match else "",
         "similar_titles": similar_titles,
@@ -312,6 +339,8 @@ def system_page():
     if not session.get("is_admin"):
         return redirect(url_for("auth.login"))
 
+    _cleanup_import_artifacts()
+
     admin_user = _current_admin_user()
     can_view_sensitive = bool(admin_user and _role_allows(admin_user.role, {"advance-admin"}))
     can_upload = can_view_sensitive
@@ -392,6 +421,7 @@ def admin_import_preview():
     _, response = _require_roles("advance-admin")
     if response:
         return response
+    _cleanup_import_artifacts()
 
     upload = request.files.get("csv_file")
     if not upload or not upload.filename:
@@ -480,7 +510,7 @@ def admin_import_preview():
     existing_titles_count = 0
     cabinet_create_count = len(new_cabinets)
 
-    import_dir = os.path.join(current_app.root_path, "database", "imports")
+    import_dir = _import_artifact_dir()
     os.makedirs(import_dir, exist_ok=True)
     token = secrets.token_urlsafe(16)
     file_path = os.path.join(import_dir, f"{token}.csv")
@@ -539,7 +569,9 @@ def admin_import_preview():
         existing_meta = meta_map.get(normalized, {})
         existing_title_obj = existing_title_lookup.get(normalized)
         author_value = entry["author"] or existing_meta.get("author") or (existing_title_obj.author if existing_title_obj else "")
-        cover_value = existing_meta.get("cover_url") or (existing_title_obj.cover_link if existing_title_obj else "")
+        cover_value = normalize_cover_url(
+            existing_meta.get("cover_url") or (existing_title_obj.cover_link if existing_title_obj else "")
+        )
 
         preview_rows.append({
             "cabinet": cab_name,
@@ -584,7 +616,7 @@ def admin_import_preview():
                 writer.writerow(["Cabinet", "Title", "Normalized", "Warning"])
                 for row in warning_rows:
                     for note in row["warnings"]:
-                        writer.writerow([row["cabinet"], row["title"], row["normalized"], note])
+                        writer.writerow(csv_safe_row([row["cabinet"], row["title"], row["normalized"], note]))
         except Exception:
             pass
 
@@ -768,8 +800,9 @@ def admin_import():
                             continue
                         if not bt.author and meta.get("author"):
                             bt.author = meta["author"]
-                        if not bt.cover_link and meta.get("cover_url"):
-                            bt.cover_link = meta["cover_url"]
+                        cover_url = normalize_cover_url(meta.get("cover_url"))
+                        if not bt.cover_link and cover_url:
+                            bt.cover_link = cover_url
                     db.session.commit()
         details = (
             f"rows={summary.get('rows', 0)} "
@@ -910,7 +943,7 @@ def admin_import_metadata():
     missing = []
     for norm, raw_title in titles:
         entry = meta_map.get(norm, {})
-        if entry.get("author") and entry.get("cover_url"):
+        if entry.get("author") and normalize_cover_url(entry.get("cover_url")):
             continue
         missing.append((norm, raw_title))
 
@@ -925,7 +958,7 @@ def admin_import_metadata():
     for norm, raw_title in titles:
         entry = meta_map.get(norm, {})
         author = entry.get("author")
-        cover_url = entry.get("cover_url")
+        cover_url = normalize_cover_url(entry.get("cover_url"))
         if not author:
             try:
                 author, _ = fetch_author_for_title(raw_title)
@@ -934,12 +967,13 @@ def admin_import_metadata():
         if not cover_url:
             try:
                 cover_url, _ = fetch_url_for_title(raw_title)
+                cover_url = normalize_cover_url(cover_url)
             except Exception:
                 cover_url = None
         if author or cover_url:
             meta_map[norm] = {
                 "author": author or entry.get("author") or "",
-                "cover_url": cover_url or entry.get("cover_url") or "",
+                "cover_url": normalize_cover_url(cover_url or entry.get("cover_url")),
             }
             updated += 1
         else:
@@ -959,7 +993,7 @@ def admin_import_metadata():
         items.append({
             "normalized": norm,
             "author": meta.get("author") or "",
-            "cover_url": meta.get("cover_url") or "",
+            "cover_url": normalize_cover_url(meta.get("cover_url")),
         })
 
     return jsonify({
@@ -1108,13 +1142,13 @@ def export_audit_csv():
     writer = csv.writer(output)
     writer.writerow(["timestamp", "actor", "action", "target", "details"])
     for log in logs:
-        writer.writerow([
+        writer.writerow(csv_safe_row([
             log.created_at.isoformat() if log.created_at else "",
             log.actor or "",
             log.action or "",
             log.target or "",
             (log.details or "").replace("\n", " "),
-        ])
+        ]))
     output.seek(0)
 
     resp = current_app.response_class(

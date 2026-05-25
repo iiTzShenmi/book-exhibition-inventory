@@ -1,6 +1,9 @@
 import json
+import csv
+import io
 
-from database.models import AdminUser, AuditLog, db
+from app import COVER_PLACEHOLDER_URL, cover_url_for_title, csv_safe_cell, is_allowed_cover_url, normalize_cover_url
+from database.models import AdminUser, AuditLog, BookTitle, db
 from werkzeug.security import generate_password_hash
 
 
@@ -17,6 +20,16 @@ def test_security_headers_are_present(client):
 
 def test_login_requires_csrf(client):
     response = client.post("/login", data={"username": "admin", "password": "wrong"})
+
+    assert response.status_code == 400
+
+
+def test_csrf_rejects_client_seeded_token(client):
+    response = client.post(
+        "/api/report_issue",
+        json={"name": "tester", "type": "bug", "description": "client seeded token"},
+        headers={"X-CSRF-Token": "attacker-chosen-token"},
+    )
 
     assert response.status_code == 400
 
@@ -53,6 +66,45 @@ def test_issue_report_persists_with_csrf(csrf_client):
     assert details["description"] == "button failed"
 
 
+def test_login_clears_existing_session_and_rotates_csrf(client):
+    user = AdminUser(
+        username="admin",
+        email="admin@example.com",
+        password_hash=generate_password_hash("correct-pass"),
+        role="admin",
+    )
+    db.session.add(user)
+    db.session.commit()
+    with client.session_transaction() as sess:
+        sess["csrf_token"] = "old-csrf"
+        sess["pre_login_marker"] = "must-be-cleared"
+
+    response = client.post(
+        "/login",
+        data={"username": "admin", "password": "correct-pass"},
+        headers={"X-CSRF-Token": "old-csrf"},
+    )
+
+    assert response.status_code == 302
+    with client.session_transaction() as sess:
+        assert sess["is_admin"] is True
+        assert sess["admin_user"] == "admin"
+        assert "pre_login_marker" not in sess
+        assert sess["csrf_token"] != "old-csrf"
+
+
+def test_cover_urls_are_allowlisted():
+    assert is_allowed_cover_url("https://imgs.cwgv.com.tw/book/cover.jpg")
+    assert is_allowed_cover_url("https://bookzone.cwgv.com.tw/assets/cover.jpg")
+    assert is_allowed_cover_url("https://static.cwgv.com.tw/assets/cover.jpg")
+    assert normalize_cover_url("http://imgs.cwgv.com.tw/book/cover.jpg") == "https://imgs.cwgv.com.tw/book/cover.jpg"
+    assert normalize_cover_url("https://evil.example/pixel.png") == ""
+    assert not is_allowed_cover_url("javascript:alert(1)")
+
+    title = BookTitle(title="Unsafe Cover", cover_link="https://evil.example/pixel.png")
+    assert cover_url_for_title(title) == COVER_PLACEHOLDER_URL
+
+
 def test_upload_limit_returns_controlled_413(csrf_client):
     csrf_client.application.config["MAX_CONTENT_LENGTH"] = 32
 
@@ -85,3 +137,69 @@ def test_advance_admin_can_access_audit_export(csrf_client):
 
     assert response.status_code == 200
     assert response.mimetype == "text/csv"
+
+
+def test_deleted_admin_session_is_invalidated(csrf_client):
+    user = AdminUser(
+        username="stale",
+        email="stale@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add(user)
+    db.session.commit()
+    user_id = user.id
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = user.username
+        sess["admin_id"] = user_id
+        sess["admin_role"] = user.role
+
+    db.session.delete(user)
+    db.session.commit()
+
+    response = csrf_client.get("/admin")
+
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+    with csrf_client.session_transaction() as sess:
+        assert "is_admin" not in sess
+
+
+def test_csv_cells_are_spreadsheet_safe():
+    assert csv_safe_cell("=HYPERLINK(\"https://evil.example\")").startswith("\t=")
+    assert csv_safe_cell("  +SUM(1,1)").startswith("\t  +")
+    assert csv_safe_cell("normal title") == "normal title"
+
+
+def test_audit_export_sanitizes_formula_cells(csrf_client):
+    user = AdminUser(
+        username="root",
+        email="root-csv@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="advance-admin",
+    )
+    db.session.add(user)
+    db.session.add(
+        AuditLog(
+            actor="=cmd",
+            action="+open",
+            target="@target",
+            details="-formula",
+        )
+    )
+    db.session.commit()
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = user.username
+        sess["admin_id"] = user.id
+        sess["admin_role"] = user.role
+
+    response = csrf_client.get("/admin/audit/export")
+    rows = list(csv.reader(io.StringIO(response.get_data(as_text=True))))
+
+    assert response.status_code == 200
+    assert rows[1][1].startswith("\t=")
+    assert rows[1][2].startswith("\t+")
+    assert rows[1][3].startswith("\t@")
+    assert rows[1][4].startswith("\t-")
