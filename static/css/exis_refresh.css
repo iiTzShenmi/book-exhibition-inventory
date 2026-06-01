@@ -1614,9 +1614,15 @@ body:not(.is-admin) .result-card.has-cover:not(.show-info) .cover-pop {
 }
 
 body.search-page:not(.is-admin) .hero {
-  padding: 12px 0 12px;
+  padding: 12px 24px;
   margin-bottom: 12px;
   gap: 12px;
+}
+
+body.search-page:not(.is-admin) .hero__text {
+  width: 100%;
+  max-width: 1040px;
+  margin-inline: auto;
 }
 
 body.search-page:not(.is-admin) .page-content {

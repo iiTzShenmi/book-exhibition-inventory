@@ -19,6 +19,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import redis
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 from tools import env_loader  # loads .env into os.environ
 from database.models import TopSellerSnapshot, db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
 from database.models import EventSchedule, BackupArchive, event_books
@@ -89,6 +90,19 @@ IS_HOSTED_DEPLOY = (
     or bool(os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
 )
 IS_PRODUCTION = IS_HOSTED_DEPLOY or bool(DATABASE_URL)
+IS_TESTING_ENV = os.environ.get("APP_ENV") == "testing" or os.environ.get("FLASK_ENV") == "testing"
+STRICT_HOSTED_PRODUCTION = IS_HOSTED_DEPLOY and not IS_TESTING_ENV
+
+CONFIGURED_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY") or os.environ.get("APP_SECRET_KEY")
+
+if STRICT_HOSTED_PRODUCTION and not CONFIGURED_SECRET_KEY:
+    raise RuntimeError("FLASK_SECRET_KEY or APP_SECRET_KEY is required in hosted production")
+
+if STRICT_HOSTED_PRODUCTION and not os.environ.get("INVITE_CODE_PEPPER"):
+    raise RuntimeError("INVITE_CODE_PEPPER is required in hosted production")
+
+if STRICT_HOSTED_PRODUCTION and ADMIN_PASSWORD_RAW:
+    raise RuntimeError("Use ADMIN_PASSWORD_HASH instead of plaintext ADMIN_PASSWORD in hosted production")
 
 if not ADMIN_PASSWORD_HASH and not ADMIN_PASSWORD_RAW:
     if not IS_PRODUCTION:
@@ -108,10 +122,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or f"sqlite:///{DB_PATH}"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_pre_ping": True}
 app.secret_key = (
-    os.environ.get("FLASK_SECRET_KEY")
-    or os.environ.get("APP_SECRET_KEY")
+    CONFIGURED_SECRET_KEY
     or secrets.token_hex(32)
 )
+if IS_HOSTED_DEPLOY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 # Session configuration for security
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=2)
 app.config["SESSION_COOKIE_SECURE"] = env_flag("SESSION_COOKIE_SECURE", IS_HOSTED_DEPLOY)
@@ -162,6 +177,7 @@ limiter = Limiter(
     key_func=get_remote_address,
     storage_uri=REDIS_URL if redis_client else "memory://",
     default_limits=[os.environ.get("RATELIMIT_DEFAULT", "300 per minute")],
+    strategy=os.environ.get("RATELIMIT_STRATEGY", "moving-window"),
 )
 limiter.init_app(app)
 
@@ -207,6 +223,7 @@ CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r", "\n")
 def csv_safe_cell(value) -> str:
     """Prefix spreadsheet-formula-looking cells before writing human-opened CSVs."""
     text_value = "" if value is None else str(value)
+    text_value = text_value.replace("\r", " ").replace("\n", " ")
     if text_value.lstrip(" \t\r\n").startswith(CSV_FORMULA_PREFIXES):
         return f"\t{text_value}"
     return text_value
@@ -214,6 +231,39 @@ def csv_safe_cell(value) -> str:
 
 def csv_safe_row(values):
     return [csv_safe_cell(value) for value in values]
+
+
+def pg_env_from_database_url(database_url: str) -> dict[str, str]:
+    """Build libpq env vars so pg_dump does not receive credentials in argv."""
+    parsed = urllib.parse.urlparse(database_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_URL must be a Postgres URL")
+
+    env = os.environ.copy()
+    if parsed.hostname:
+        env["PGHOST"] = parsed.hostname
+    if parsed.port:
+        env["PGPORT"] = str(parsed.port)
+    if parsed.username:
+        env["PGUSER"] = urllib.parse.unquote(parsed.username)
+    if parsed.password:
+        env["PGPASSWORD"] = urllib.parse.unquote(parsed.password)
+    db_name = (parsed.path or "").lstrip("/")
+    if db_name:
+        env["PGDATABASE"] = urllib.parse.unquote(db_name)
+    query = urllib.parse.parse_qs(parsed.query or "")
+    if query.get("sslmode"):
+        env["PGSSLMODE"] = query["sslmode"][-1]
+    return env
+
+
+def run_pg_dump_to_file(database_url: str, output_path: str) -> None:
+    """Write a Postgres dump without exposing the full URL in process arguments."""
+    subprocess.run(
+        ["pg_dump", "-f", output_path],
+        check=True,
+        env=pg_env_from_database_url(database_url),
+    )
 
 
 def sync_csv_to_db(
@@ -448,13 +498,7 @@ def create_backup():
     if is_postgres() and DATABASE_URL:
         dump_path = os.path.join(BACKUP_DIR, f"inventory_{ts}.sql")
         try:
-            result = subprocess.run(
-                ["pg_dump", DATABASE_URL],
-                check=True,
-                capture_output=True,
-            )
-            with open(dump_path, "wb") as f:
-                f.write(result.stdout)
+            run_pg_dump_to_file(DATABASE_URL, dump_path)
             print(f"[backup] pg_dump saved to {dump_path}")
             return {"db": dump_path, "csv": csv_backup, "timestamp": ts}
         except Exception as exc:
@@ -928,7 +972,7 @@ def cover_csp_sources() -> list[str]:
 
 
 def is_allowed_cover_url(url: str | None) -> bool:
-    """Return True when a cover image URL comes from an approved HTTPS host."""
+    """Return True when a cover image URL can be served from an approved host."""
     text_value = (url or "").strip()
     if not text_value:
         return False
@@ -939,6 +983,8 @@ def is_allowed_cover_url(url: str | None) -> bool:
     except Exception:
         return False
     host = (parsed.hostname or "").lower()
+    if not parsed.scheme and parsed.netloc:
+        return _cover_host_allowed(host)
     return parsed.scheme == "https" and _cover_host_allowed(host)
 
 
@@ -954,6 +1000,8 @@ def normalize_cover_url(url: str | None) -> str:
     except Exception:
         return ""
     host = (parsed.hostname or "").lower()
+    if not parsed.scheme and parsed.netloc and _cover_host_allowed(host):
+        return urllib.parse.urlunparse(parsed._replace(scheme="https"))
     if parsed.scheme == "http" and _cover_host_allowed(host):
         return urllib.parse.urlunparse(parsed._replace(scheme="https"))
     return text_value if parsed.scheme == "https" and _cover_host_allowed(host) else ""
@@ -986,7 +1034,12 @@ def normalize_invite_code(code: str) -> str:
 
 def invite_code_pepper() -> str:
     """Return the stable secret used for invite lookup HMACs."""
-    return os.environ.get("INVITE_CODE_PEPPER") or app.secret_key
+    pepper = os.environ.get("INVITE_CODE_PEPPER")
+    if pepper:
+        return pepper
+    if STRICT_HOSTED_PRODUCTION:
+        raise RuntimeError("INVITE_CODE_PEPPER is required in hosted production")
+    return app.secret_key
 
 
 def invite_code_lookup(code: str) -> str:
@@ -1635,7 +1688,7 @@ def csrf_protect():
 
     token = request.headers.get("X-CSRF-Token") or request.form.get("csrf_token")
     session_token = session.get("csrf_token")
-    if not token or token != session_token:
+    if not token or not session_token or not hmac.compare_digest(str(token), str(session_token)):
         # For JSON requests, return JSON error
         if request.is_json or request.path.startswith('/api/') or request.path.startswith('/toggle_modal_stock') or request.path.startswith('/replenish'):
             if os.environ.get("CSRF_DEBUG") == "1":

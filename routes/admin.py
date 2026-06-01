@@ -55,6 +55,18 @@ def _cleanup_import_artifacts(max_age_seconds: int = IMPORT_ARTIFACT_MAX_AGE_SEC
             continue
 
 
+def _write_external_backup_copy(filename: str, csv_content: str) -> str:
+    export_dir = (os.environ.get("EXIS_BACKUP_EXPORT_DIR") or "").strip()
+    if not export_dir:
+        return ""
+    output_dir = os.path.abspath(os.path.expanduser(export_dir))
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, os.path.basename(filename))
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        f.write(csv_content)
+    return output_path
+
+
 def _current_admin_user():
     if not session.get("is_admin"):
         return None
@@ -135,6 +147,9 @@ def _create_backup_archive(note: str | None = None) -> BackupArchive:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"backup_{timestamp}.csv"
     backup_note = note or f"Auto backup: {count} books"
+    external_path = _write_external_backup_copy(filename, csv_string)
+    if external_path:
+        backup_note = f"{backup_note}; external_copy={external_path}"
 
     new_backup = BackupArchive(
         filename=filename,
@@ -412,6 +427,11 @@ def admin_backup():
         "success": True,
         "message": "備份已成功儲存至資料庫",
         "backup": new_backup.to_dict(),
+        "dr_note": (
+            "已同時寫出外部備份副本。"
+            if os.environ.get("EXIS_BACKUP_EXPORT_DIR")
+            else "資料庫內建備份僅供快速回復；災難復原請使用 Render PITR/logical backup 或設定 EXIS_BACKUP_EXPORT_DIR 到持久化儲存。"
+        ),
         "timestamp": new_backup.created_at.isoformat() if new_backup.created_at else "",
     })
 

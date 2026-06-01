@@ -111,9 +111,11 @@ Create a `.env` file in the project root (see `SETUP.md` for details).
 ### Production
 ```bash
 DATABASE_URL=postgresql://user:pass@host:port/dbname
+REDIS_URL=redis://user:pass@host:port
 FLASK_SECRET_KEY=your-secret-key
+INVITE_CODE_PEPPER=separate-random-invite-pepper
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-password
+ADMIN_PASSWORD_HASH=scrypt:...
 ADMIN_EMAIL=admin@example.com
 ```
 
@@ -126,6 +128,8 @@ ADMIN_PASSWORD=dev-password
 ```
 
 **Note:** The database connection is automatically configured from `DATABASE_URL`. If not set, the app uses SQLite for local development.
+
+Production startup fails closed when `FLASK_SECRET_KEY`/`APP_SECRET_KEY`, `INVITE_CODE_PEPPER`, or `REDIS_URL` are missing. Use `ADMIN_PASSWORD_HASH` in production; plaintext `ADMIN_PASSWORD` is development-only.
 
 ## Documentation (Merged)
 
@@ -162,6 +166,13 @@ The separate `docs/` folder has been merged into this README. Key operational no
   rm database/tools/reports/*.tsv
   ```
 - Backups live in `database/backups/` (keep as needed).
+- In-app `BackupArchive` records are convenience snapshots, not disaster recovery backups. Use Render Postgres PITR/logical backups or an external object-store dump job for durable recovery.
+
+### Dependency Files
+- `requirements.txt` is the production/runtime dependency contract used by CI and Render.
+- `requirements-dev.txt` adds test and security tooling.
+- `requirements-tools.txt` adds optional one-off import/helper dependencies.
+- `psycopg2` is built from source for production hygiene; local installs need `pg_config`/Postgres client headers, and CI installs `libpq-dev` before `pip install`.
 
 ### Database Structure (Summary)
 Core tables:

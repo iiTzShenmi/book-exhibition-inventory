@@ -1,8 +1,16 @@
 import json
 import csv
 import io
+from pathlib import Path
 
-from app import COVER_PLACEHOLDER_URL, cover_url_for_title, csv_safe_cell, is_allowed_cover_url, normalize_cover_url
+from app import (
+    COVER_PLACEHOLDER_URL,
+    cover_url_for_title,
+    csv_safe_cell,
+    is_allowed_cover_url,
+    normalize_cover_url,
+    pg_env_from_database_url,
+)
 from database.models import AdminUser, AuditLog, BookTitle, db
 from werkzeug.security import generate_password_hash
 
@@ -29,6 +37,19 @@ def test_csrf_rejects_client_seeded_token(client):
         "/api/report_issue",
         json={"name": "tester", "type": "bug", "description": "client seeded token"},
         headers={"X-CSRF-Token": "attacker-chosen-token"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_login_rejects_first_post_with_attacker_token(client):
+    response = client.post(
+        "/login",
+        data={
+            "username": "admin",
+            "password": "whatever",
+            "csrf_token": "attacker-chosen-token",
+        },
     )
 
     assert response.status_code == 400
@@ -98,7 +119,9 @@ def test_cover_urls_are_allowlisted():
     assert is_allowed_cover_url("https://bookzone.cwgv.com.tw/assets/cover.jpg")
     assert is_allowed_cover_url("https://static.cwgv.com.tw/assets/cover.jpg")
     assert normalize_cover_url("http://imgs.cwgv.com.tw/book/cover.jpg") == "https://imgs.cwgv.com.tw/book/cover.jpg"
+    assert normalize_cover_url("//imgs.cwgv.com.tw/book/cover.jpg") == "https://imgs.cwgv.com.tw/book/cover.jpg"
     assert normalize_cover_url("https://evil.example/pixel.png") == ""
+    assert normalize_cover_url("//evil.example/pixel.png") == ""
     assert not is_allowed_cover_url("javascript:alert(1)")
 
     title = BookTitle(title="Unsafe Cover", cover_link="https://evil.example/pixel.png")
@@ -169,6 +192,7 @@ def test_deleted_admin_session_is_invalidated(csrf_client):
 def test_csv_cells_are_spreadsheet_safe():
     assert csv_safe_cell("=HYPERLINK(\"https://evil.example\")").startswith("\t=")
     assert csv_safe_cell("  +SUM(1,1)").startswith("\t  +")
+    assert csv_safe_cell("\n=SUM(1,1)") == "\t =SUM(1,1)"
     assert csv_safe_cell("normal title") == "normal title"
 
 
@@ -203,3 +227,21 @@ def test_audit_export_sanitizes_formula_cells(csrf_client):
     assert rows[1][2].startswith("\t+")
     assert rows[1][3].startswith("\t@")
     assert rows[1][4].startswith("\t-")
+
+
+def test_pg_dump_env_does_not_require_url_argument():
+    env = pg_env_from_database_url("postgresql://user:secret@example.com:5432/dbname?sslmode=require")
+
+    assert env["PGHOST"] == "example.com"
+    assert env["PGPORT"] == "5432"
+    assert env["PGUSER"] == "user"
+    assert env["PGPASSWORD"] == "secret"
+    assert env["PGDATABASE"] == "dbname"
+    assert env["PGSSLMODE"] == "require"
+
+
+def test_runtime_requirements_exclude_psycopg2_binary():
+    requirements = Path("requirements.txt").read_text(encoding="utf-8").lower()
+
+    assert "psycopg2-binary" not in requirements
+    assert "psycopg2==2.9.9" in requirements

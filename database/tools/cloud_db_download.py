@@ -12,7 +12,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 import sys
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -45,6 +45,30 @@ def mask_uri(uri: str) -> str:
         return "<masked-db-uri>"
 
 
+def pg_env_from_database_url(db_url: str) -> dict[str, str]:
+    """Build libpq env vars so pg_dump does not expose credentials in argv."""
+    parsed = urlparse(db_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_URL does not look like Postgres")
+
+    env = os.environ.copy()
+    if parsed.hostname:
+        env["PGHOST"] = parsed.hostname
+    if parsed.port:
+        env["PGPORT"] = str(parsed.port)
+    if parsed.username:
+        env["PGUSER"] = unquote(parsed.username)
+    if parsed.password:
+        env["PGPASSWORD"] = unquote(parsed.password)
+    database = (parsed.path or "").lstrip("/")
+    if database:
+        env["PGDATABASE"] = unquote(database)
+    query = parse_qs(parsed.query or "")
+    if query.get("sslmode"):
+        env["PGSSLMODE"] = query["sslmode"][-1]
+    return env
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Download cloud Postgres to a local dump via pg_dump.")
     parser.add_argument("--output", help="Path to write the dump file (default: database/backups/<timestamp>.sql)")
@@ -61,10 +85,10 @@ def main() -> int:
     output_path = resolve_output_path(args.output)
     print(f"[download] target: {output_path}")
 
-    # Use pg_dump for a plain SQL dump; Render provides this on the shell instance.
-    cmd = ["pg_dump", db_url, "-f", str(output_path)]
+    # Use libpq env vars instead of passing DATABASE_URL on argv.
+    cmd = ["pg_dump", "-f", str(output_path)]
     try:
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, env=pg_env_from_database_url(db_url))
     except FileNotFoundError:
         print("[error] pg_dump is not installed or not on PATH.")
         return 1

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bookexpo-static-v5';
+const CACHE_NAME = 'bookexpo-static-v6';
 const OFFLINE_ASSETS = [
   '/static/css/main.css',
   '/static/js/base.js',
@@ -38,7 +38,7 @@ self.addEventListener('fetch', (event) => {
 
   // Network-first for static assets only. Form/API writes are never queued offline.
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'reload' })
       .then((resp) => {
         const copy = resp.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));

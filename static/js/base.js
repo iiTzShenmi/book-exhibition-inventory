@@ -36,6 +36,12 @@
     return node;
   }
 
+  function parseTrustedHtmlFragment(html) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(html || ''), 'text/html');
+    return Array.from(doc.body.childNodes);
+  }
+
   window.EXIS = window.EXIS || {};
   window.EXIS.isAllowedCoverUrl = isAllowedCoverUrl;
   window.EXIS.allowedCoverHosts = allowedCoverHosts;
@@ -738,7 +744,7 @@
     fetch(`/book_details/${encodeURIComponent(title)}`, { cache: 'no-store' })
       .then(res => res.text())
       .then(html => {
-        box.innerHTML = html;
+        box.replaceChildren(...parseTrustedHtmlFragment(html));
         overlay.style.display = 'flex';
       })
       .catch(err => {
@@ -1432,9 +1438,11 @@
 
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.register('/sw.js').catch(err => {
-      console.warn('Service worker registration failed', err);
-    });
+    navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update().catch(() => {}))
+      .catch(err => {
+        console.warn('Service worker registration failed', err);
+      });
   }
 
   function headersWithCsrf(token) {

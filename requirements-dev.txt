@@ -1,0 +1,5 @@
+# Test, audit, and local development dependencies.
+-r requirements.txt
+bandit==1.8.6
+pip-audit==2.10.0
+pytest==8.3.3

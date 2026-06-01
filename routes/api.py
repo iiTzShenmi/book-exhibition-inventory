@@ -18,6 +18,7 @@ from app import (
     log_action,
     is_postgres,
     limiter,
+    normalize_cover_url,
 )
 
 
@@ -109,8 +110,7 @@ def search():
     for book in results:
         title_obj = getattr(book, "book_title", None)
         if title_obj:
-            if title_obj.cover_link:
-                covers[book.title] = title_obj.cover_link
+            covers[book.title] = cover_url_for_title(title_obj)
             if title_obj.author:
                 authors[book.title] = title_obj.author
 
@@ -211,8 +211,8 @@ def search():
                     suggestion_books = books_by_title.get(prof.title, [])
                     if suggestion_books:
                         title_obj = getattr(suggestion_books[0], "book_title", None)
-                        if title_obj and title_obj.cover_link:
-                            suggestion_cover = title_obj.cover_link
+                        if title_obj:
+                            suggestion_cover = cover_url_for_title(title_obj)
 
                     suggestions.append(
                         {
@@ -605,10 +605,15 @@ def title_cover(title_id):
         "title_id": title_obj.id,
         "title": title_obj.title,
         "cover_url": cover_url_for_title(title_obj),
-        "cover_link": title_obj.cover_link,
+        "cover_link": normalize_cover_url(title_obj.cover_link),
     })
 
 
 @api_bp.route("/sw.js")
 def service_worker():
-    return send_from_directory(current_app.static_folder, "sw.js")
+    response = send_from_directory(current_app.static_folder, "sw.js")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
