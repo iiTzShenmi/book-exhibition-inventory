@@ -33,7 +33,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from tools import env_loader  # noqa: F401
-from sqlalchemy import create_engine, text
+from sqlalchemy import MetaData, Table, create_engine, func, select, text
 
 # ---------- CONFIG ----------
 
@@ -47,6 +47,11 @@ if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
 
 TABLES = ["admin_user", "admin_invite", "cabinet", "book_title", "inventory", "view_event", "audit_log"]
+TABLE_SET = set(TABLES)
+TRUNCATE_TABLES_SQL = (
+    "TRUNCATE TABLE admin_user, admin_invite, cabinet, book_title, "
+    "inventory, view_event, audit_log RESTART IDENTITY CASCADE;"
+)
 
 
 # ---------- HELPER FUNCTIONS ----------
@@ -91,6 +96,26 @@ def mask_uri(uri: str) -> str:
         return urlunparse(parsed._replace(netloc=netloc))
     except Exception:
         return "<masked-db-uri>"
+
+
+def require_known_table(table_name: str) -> str:
+    """Validate table identifiers before using them in maintenance SQL."""
+    if table_name not in TABLE_SET:
+        raise ValueError(f"Unsupported table name: {table_name}")
+    return table_name
+
+
+def sqlite_select_all(sqlite_conn: sqlite3.Connection, table_name: str):
+    """Return all rows from a known SQLite table."""
+    table_name = require_known_table(table_name)
+    # The table name is validated against TABLES before interpolation.
+    return sqlite_conn.execute(f'SELECT * FROM "{table_name}"').fetchall()  # nosec B608
+
+
+def reflect_pg_table(bind, table_name: str) -> Table:
+    """Reflect a known PostgreSQL table for SQLAlchemy-generated DML."""
+    table_name = require_known_table(table_name)
+    return Table(table_name, MetaData(), autoload_with=bind)
 
 
 def prompt_yes(question: str, default: bool = True) -> bool:
@@ -159,11 +184,17 @@ def truncate_postgres(engine, tables: List[str]):
     print("Truncating Postgres tables...")
     with engine.begin() as conn:
         for table in tables:
-            try:
-                conn.execute(text(f"TRUNCATE TABLE {table} RESTART IDENTITY CASCADE;"))
-            except Exception:
-                conn.execute(text(f"DELETE FROM {table};"))
-                conn.execute(text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), 1, false);"))
+            require_known_table(table)
+        try:
+            conn.execute(text(TRUNCATE_TABLES_SQL))
+        except Exception:
+            for table in reversed(tables):
+                pg_table = reflect_pg_table(conn, table)
+                conn.execute(pg_table.delete())
+                conn.execute(
+                    text("SELECT setval(pg_get_serial_sequence(:table_name, :id_column), 1, false);"),
+                    {"table_name": table, "id_column": "id"},
+                )
     print("Done.\n")
 
 
@@ -171,7 +202,7 @@ def migrate_table(sqlite_conn: sqlite3.Connection, pg_engine, table_name: str):
     """Migrate a single table from SQLite to PostgreSQL."""
     print(f"Migrating {table_name}...")
     try:
-        rows = sqlite_conn.execute(f"SELECT * FROM {table_name}").fetchall()
+        rows = sqlite_select_all(sqlite_conn, table_name)
     except sqlite3.OperationalError:
         print(f"  Skip: table '{table_name}' not found.\n")
         return
@@ -184,14 +215,12 @@ def migrate_table(sqlite_conn: sqlite3.Connection, pg_engine, table_name: str):
     # Remove quantity columns that shouldn't be migrated
     cols_to_exclude = {"qty_on_hand", "qty_reserved"}
     cols = [c for c in cols if c not in cols_to_exclude]
+    pg_table = reflect_pg_table(pg_engine, table_name)
+    cols = [c for c in cols if c in pg_table.c]
     
     if not cols:
         print(f"  No valid columns to migrate.\n")
         return
-    
-    col_list = ", ".join(f'"{c}"' for c in cols)
-    placeholders = ", ".join(f":{c}" for c in cols)
-    insert_sql = text(f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})")
 
     with pg_engine.begin() as conn:
         for row in rows:
@@ -199,7 +228,7 @@ def migrate_table(sqlite_conn: sqlite3.Connection, pg_engine, table_name: str):
             # Only include columns we want to migrate
             payload = {k: (v.decode("utf-8", errors="replace") if isinstance(v, bytes) else v) 
                       for k, v in row_dict.items() if k in cols}
-            conn.execute(insert_sql, payload)
+            conn.execute(pg_table.insert(), payload)
 
     print(f"  Inserted {len(rows)} rows.\n")
 
@@ -218,7 +247,12 @@ def fix_sequences(pg_engine):
     }
     with pg_engine.begin() as conn:
         for table, seq in sequences.items():
-            conn.execute(text(f"SELECT setval('{seq}', COALESCE((SELECT MAX(id) FROM {table}), 1), true);"))
+            pg_table = reflect_pg_table(conn, table)
+            max_id = conn.execute(select(func.max(pg_table.c.id))).scalar() or 1
+            conn.execute(
+                text("SELECT setval(CAST(:sequence_name AS regclass), :max_id, true);"),
+                {"sequence_name": seq, "max_id": max_id},
+            )
     print("Done.\n")
 
 
@@ -426,4 +460,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

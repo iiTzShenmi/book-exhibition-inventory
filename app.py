@@ -612,7 +612,10 @@ def drop_quantity_columns_from_sqlite():
         with db.engine.begin() as seq_conn:
             max_id = seq_conn.execute(text("SELECT MAX(id) FROM inventory")).scalar() or 0
             if max_id:
-                seq_conn.execute(text(f"UPDATE sqlite_sequence SET seq = {max_id} WHERE name = 'inventory'"))
+                seq_conn.execute(
+                    text("UPDATE sqlite_sequence SET seq = :max_id WHERE name = 'inventory'"),
+                    {"max_id": max_id},
+                )
     except Exception:
         pass  # Sequence might not exist yet
     

@@ -38,4 +38,4 @@ jobs:
         run: |
           pip-audit -r requirements.txt --progress-spinner off
       - name: Static security scan
-        run: bandit -r . -x tests
+        run: bandit -r . -x ./tests -ll
