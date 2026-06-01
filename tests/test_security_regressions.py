@@ -3,6 +3,7 @@ import csv
 import io
 from pathlib import Path
 
+import app as app_module
 from app import (
     COVER_PLACEHOLDER_URL,
     cover_url_for_title,
@@ -128,6 +129,17 @@ def test_cover_urls_are_allowlisted():
     assert cover_url_for_title(title) == COVER_PLACEHOLDER_URL
 
 
+def test_service_worker_does_not_cache_cover_critical_assets():
+    worker = Path("static/sw.js").read_text(encoding="utf-8")
+
+    assert "url.origin !== self.location.origin" in worker
+    assert "startsWith('/static/css/')" in worker
+    assert "startsWith('/static/js/')" in worker
+    assert "cache: 'no-store'" in worker
+    assert "'/static/css/main.css'" not in worker
+    assert "'/static/js/base.js'" not in worker
+
+
 def test_upload_limit_returns_controlled_413(csrf_client):
     csrf_client.application.config["MAX_CONTENT_LENGTH"] = 32
 
@@ -245,3 +257,31 @@ def test_runtime_requirements_exclude_psycopg2_binary():
 
     assert "psycopg2-binary" not in requirements
     assert "psycopg2==2.9.9" in requirements
+
+
+def test_hosted_production_does_not_auto_seed_default_admin(monkeypatch, client):
+    monkeypatch.setattr(app_module, "STRICT_HOSTED_PRODUCTION", True)
+    monkeypatch.setattr(app_module, "ADMIN_PASSWORD_RAW", None)
+    monkeypatch.setattr(app_module, "ADMIN_PASSWORD_HASH", generate_password_hash("seed-pass"))
+    monkeypatch.delenv("EXIS_ENABLE_ADMIN_BOOTSTRAP", raising=False)
+
+    app_module.ensure_default_admin()
+
+    assert AdminUser.query.count() == 0
+
+
+def test_hosted_production_does_not_auto_promote_advance_admin(monkeypatch, client):
+    user = AdminUser(
+        username="manager",
+        email="manager@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add(user)
+    db.session.commit()
+    monkeypatch.setattr(app_module, "STRICT_HOSTED_PRODUCTION", True)
+    monkeypatch.delenv("EXIS_ENABLE_ADMIN_BOOTSTRAP", raising=False)
+
+    app_module.ensure_advance_admin_exists()
+
+    assert AdminUser.query.filter_by(username="manager").one().role == "admin"

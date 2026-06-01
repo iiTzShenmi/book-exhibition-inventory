@@ -117,6 +117,9 @@ INVITE_CODE_PEPPER=separate-random-invite-pepper
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD_HASH=scrypt:...
 ADMIN_EMAIL=admin@example.com
+# Emergency only: allows hosted init-db to seed/promote an admin account.
+# Prefer tools/create_admin_code.py with an advance-admin invite instead.
+# EXIS_ENABLE_ADMIN_BOOTSTRAP=1
 ```
 
 ### Development
@@ -129,7 +132,7 @@ ADMIN_PASSWORD=dev-password
 
 **Note:** The database connection is automatically configured from `DATABASE_URL`. If not set, the app uses SQLite for local development.
 
-Production startup fails closed when `FLASK_SECRET_KEY`/`APP_SECRET_KEY`, `INVITE_CODE_PEPPER`, or `REDIS_URL` are missing. Use `ADMIN_PASSWORD_HASH` in production; plaintext `ADMIN_PASSWORD` is development-only.
+Production startup fails closed when `FLASK_SECRET_KEY`/`APP_SECRET_KEY`, `INVITE_CODE_PEPPER`, or `REDIS_URL` are missing. Use `ADMIN_PASSWORD_HASH` in production; plaintext `ADMIN_PASSWORD` is development-only. Hosted production also skips default-admin seeding and automatic `advance-admin` promotion unless `EXIS_ENABLE_ADMIN_BOOTSTRAP=1` is set for an intentional one-time bootstrap.
 
 ## Documentation (Merged)
 

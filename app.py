@@ -1173,6 +1173,9 @@ def migrate_plaintext_invite_codes():
 
 def ensure_advance_admin_exists():
     """Keep one owner-level admin available before enforcing stricter RBAC."""
+    if STRICT_HOSTED_PRODUCTION and not env_flag("EXIS_ENABLE_ADMIN_BOOTSTRAP", False):
+        print("[init] advance-admin auto-promotion skipped in hosted production.")
+        return
     if AdminUser.query.filter_by(role="advance-admin").first():
         return
     preferred = None
@@ -1189,6 +1192,9 @@ def ensure_advance_admin_exists():
 def ensure_default_admin():
     """Create a default admin user when none exist, using env credentials."""
     if AdminUser.query.first():
+        return
+    if STRICT_HOSTED_PRODUCTION and not env_flag("EXIS_ENABLE_ADMIN_BOOTSTRAP", False):
+        print("[init] default admin seeding skipped in hosted production. Use tools/create_admin_code.py for onboarding.")
         return
     password = ADMIN_PASSWORD_RAW
     password_hash = ADMIN_PASSWORD_HASH

@@ -1455,6 +1455,38 @@ body:not(.is-admin) .info-hub {
   display: none;
 }
 
+body:not(.is-admin) .result-card.has-cover .cover-pop {
+  display: block;
+  width: 100%;
+}
+
+body:not(.is-admin) .result-card.has-cover:not(.show-info) .card__header,
+body:not(.is-admin) .result-card.has-cover:not(.show-info) .status-list,
+body:not(.is-admin) .result-card.has-cover:not(.show-info) .topic-chips,
+body:not(.is-admin) .result-card.has-cover:not(.show-info) .reserve-hint {
+  display: none;
+}
+
+body:not(.is-admin) .result-card.has-cover.show-info .cover-pop {
+  display: none;
+}
+
+body:not(.is-admin) .result-card.has-cover.show-info .card__header {
+  display: flex;
+}
+
+body:not(.is-admin) .result-card.has-cover.show-info .status-list {
+  display: grid;
+}
+
+body:not(.is-admin) .result-card.has-cover.show-info .topic-chips {
+  display: flex;
+}
+
+body:not(.is-admin) .result-card.has-cover.show-info .reserve-hint {
+  display: block;
+}
+
 @media (hover: none) {
   .cover-pop {
     aspect-ratio: 2 / 3;

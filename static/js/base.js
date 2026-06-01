@@ -1438,8 +1438,35 @@
 
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return;
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let refreshedForNewWorker = false;
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || refreshedForNewWorker) return;
+      refreshedForNewWorker = true;
+      window.location.reload();
+    });
+
     navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
-      .then((registration) => registration.update().catch(() => {}))
+      .then((registration) => {
+        const activateWaitingWorker = () => {
+          if (registration.waiting) {
+            registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+        };
+
+        registration.addEventListener('updatefound', () => {
+          const worker = registration.installing;
+          if (!worker) return;
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+              worker.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
+
+        return registration.update().then(activateWaitingWorker).catch(() => {});
+      })
       .catch(err => {
         console.warn('Service worker registration failed', err);
       });
