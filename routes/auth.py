@@ -20,11 +20,12 @@ def login():
         password = request.form.get("password", "")
         user = AdminUser.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
+            session.clear()
             session["is_admin"] = True
             session["admin_user"] = user.username
             session["admin_id"] = user.id
             session["admin_role"] = user.role or "admin"
-            session.setdefault("csrf_token", secrets.token_urlsafe(32))
+            session["csrf_token"] = secrets.token_urlsafe(32)
             session.permanent = True
             try:
                 log_action("login_success", target=user.username)
@@ -83,11 +84,13 @@ def register():
                 log_action("register_admin", target=username, details=f"role={role}")
                 db.session.commit()
 
+                session.clear()
                 session["is_admin"] = True
                 session["admin_user"] = user.username
                 session["admin_id"] = user.id
                 session["admin_role"] = user.role or "admin"
-                session.setdefault("csrf_token", secrets.token_urlsafe(32))
+                session["csrf_token"] = secrets.token_urlsafe(32)
+                session.permanent = True
                 try:
                     log_action("login_success", target=user.username, details="auto after register")
                     db.session.commit()
