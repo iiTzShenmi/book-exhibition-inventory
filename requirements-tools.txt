@@ -4,4 +4,4 @@
 #   python -m pip install -r requirements-tools.txt
 -r requirements.txt
 openpyxl==3.1.5
-Pillow==12.0.0
+Pillow==12.2.0
