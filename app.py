@@ -559,7 +559,12 @@ def drop_quantity_columns_from_sqlite():
             else:
                 print("[migration] Quantity columns already removed from PostgreSQL")
         return
-    
+
+    # Standardize legacy state columns before reconstructing the table so the
+    # preservation query can remain static and independently auditable.
+    ensure_inventory_in_stock_column()
+    ensure_inventory_status_columns()
+
     # SQLite: recreate table without quantity columns
     # Check if columns exist first
     with db.engine.connect() as check_conn:
@@ -573,39 +578,116 @@ def drop_quantity_columns_from_sqlite():
     
     print("[migration] Recreating inventory table without quantity columns...")
     
-    # Get all data (only columns we want to keep)
+    # Read the complete non-quantity state before replacing the table.
+    select_sql = text("""
+        SELECT id, title_id, cabinet_id,
+               COALESCE(in_stock, 1) AS in_stock,
+               COALESCE(status, 'active') AS status,
+               deleted_at, created_at, updated_at
+        FROM inventory
+    """)
     try:
         with db.engine.connect() as read_conn:
-            data = read_conn.execute(text("SELECT id, title_id, cabinet_id, created_at, updated_at FROM inventory")).fetchall()
+            data = [dict(row._mapping) for row in read_conn.execute(select_sql).fetchall()]
     except Exception as e:
         print(f"[migration] Error reading inventory data: {e}")
-        return
-    
-    # Drop old table and recreate - use begin() for transaction
-    with db.engine.begin() as trans_conn:
-        trans_conn.execute(text("DROP TABLE inventory"))
-    
-    # Recreate using model definition
-    Inventory.__table__.create(db.engine, checkfirst=True)
-    
-    # Reinsert data
-    if data:
-        insert_sql = text("""
-            INSERT INTO inventory (id, title_id, cabinet_id, created_at, updated_at)
-            VALUES (:id, :title_id, :cabinet_id, :created_at, :updated_at)
-        """)
+        raise RuntimeError("Cannot safely migrate inventory quantity columns") from e
+
+    candidate_exists = None
+    with db.engine.connect() as check_conn:
+        candidate_exists = check_conn.execute(text("""
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN (
+                  'inventory_quantity_migration_candidate',
+                  'inventory_quantity_migration_legacy'
+              )
+        """)).fetchone()
+    if candidate_exists:
+        raise RuntimeError(
+            "A previous inventory quantity migration requires manual review before retrying"
+        )
+
+    create_candidate_sql = text("""
+        CREATE TABLE inventory_quantity_migration_candidate (
+            id INTEGER NOT NULL,
+            title_id INTEGER NOT NULL,
+            cabinet_id INTEGER NOT NULL,
+            in_stock BOOLEAN NOT NULL,
+            status VARCHAR(20) NOT NULL,
+            deleted_at DATETIME,
+            created_at DATETIME,
+            updated_at DATETIME,
+            PRIMARY KEY (id),
+            CONSTRAINT uq_inventory_title_cabinet UNIQUE (title_id, cabinet_id),
+            FOREIGN KEY(title_id) REFERENCES book_title (id),
+            FOREIGN KEY(cabinet_id) REFERENCES cabinet (id)
+        )
+    """)
+    insert_candidate_sql = text("""
+        INSERT INTO inventory_quantity_migration_candidate (
+            id, title_id, cabinet_id, in_stock, status, deleted_at, created_at, updated_at
+        ) VALUES (
+            :id, :title_id, :cabinet_id, :in_stock, :status, :deleted_at, :created_at, :updated_at
+        )
+    """)
+    try:
+        # Build and validate a separate table before touching live inventory.
         with db.engine.begin() as trans_conn:
-            for row in data:
-                try:
-                    trans_conn.execute(insert_sql, {
-                        "id": row[0],
-                        "title_id": row[1],
-                        "cabinet_id": row[2],
-                        "created_at": row[3],
-                        "updated_at": row[4]
-                    })
-                except Exception as e:
-                    print(f"[migration] Warning: Failed to reinsert row {row[0]}: {e}")
+            trans_conn.execute(create_candidate_sql)
+            if data:
+                trans_conn.execute(insert_candidate_sql, data)
+            restored_count = trans_conn.execute(
+                text("SELECT COUNT(*) FROM inventory_quantity_migration_candidate")
+            ).scalar_one()
+            if restored_count != len(data):
+                raise RuntimeError(
+                    f"Inventory migration restored {restored_count} of {len(data)} rows"
+                )
+    except Exception as e:
+        with db.engine.begin() as cleanup_conn:
+            cleanup_conn.execute(text("DROP TABLE IF EXISTS inventory_quantity_migration_candidate"))
+        print(f"[migration] Candidate inventory migration failed safely: {e}")
+        raise
+
+    try:
+        # The candidate contains every row and enforces the current schema.
+        # Only now replace the original table and then restore its status index.
+        with db.engine.begin() as swap_conn:
+            swap_conn.execute(text("ALTER TABLE inventory RENAME TO inventory_quantity_migration_legacy"))
+            swap_conn.execute(text("ALTER TABLE inventory_quantity_migration_candidate RENAME TO inventory"))
+            restored_count = swap_conn.execute(text("SELECT COUNT(*) FROM inventory")).scalar_one()
+            if restored_count != len(data):
+                raise RuntimeError(
+                    f"Inventory migration swap restored {restored_count} of {len(data)} rows"
+                )
+        with db.engine.begin() as cleanup_conn:
+            cleanup_conn.execute(text("DROP TABLE inventory_quantity_migration_legacy"))
+            cleanup_conn.execute(text("CREATE INDEX IF NOT EXISTS ix_inventory_status ON inventory (status)"))
+    except Exception as e:
+        # If the first rename succeeded but the candidate rename did not, put
+        # the original table back so the application remains operable.
+        with db.engine.begin() as recovery_conn:
+            tables = {
+                row[0]
+                for row in recovery_conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type = 'table'")
+                )
+            }
+            if (
+                "inventory" not in tables
+                and "inventory_quantity_migration_legacy" in tables
+            ):
+                recovery_conn.execute(
+                    text("ALTER TABLE inventory_quantity_migration_legacy RENAME TO inventory")
+                )
+                if "inventory_quantity_migration_candidate" in tables:
+                    recovery_conn.execute(
+                        text("DROP TABLE inventory_quantity_migration_candidate")
+                    )
+        print(f"[migration] Inventory candidate swap requires recovery: {e}")
+        raise
     
     # Reset sequence if needed
     try:
@@ -653,14 +735,24 @@ def ensure_author_column():
 
 def ensure_title_cover_column():
     """Ensure BookTitle has a cover_link column for cover lookups."""
-    if is_postgres():
-        return  # column exists in model; PRAGMA not supported
-    with db.engine.connect() as conn:
-        result = conn.execute(text("PRAGMA table_info(book_title)"))
-        columns = [row[1] for row in result]
+    inspector = db.inspect(db.engine)
+    if "book_title" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("book_title")}
     if "cover_link" not in columns:
         with db.engine.begin() as conn:
             conn.execute(text("ALTER TABLE book_title ADD COLUMN cover_link TEXT"))
+
+
+def ensure_title_topics_column():
+    """Ensure legacy BookTitle tables support topic-based search data."""
+    inspector = db.inspect(db.engine)
+    if "book_title" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("book_title")}
+    if "topics" not in columns:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE book_title ADD COLUMN topics TEXT"))
 
 
 def ensure_book_title_view_columns():
@@ -1255,6 +1347,7 @@ def initialize_app(*, sync_csv: bool = True):
         ensure_default_admin()
         ensure_advance_admin_exists()
         ensure_title_cover_column()
+        ensure_title_topics_column()
         ensure_book_title_view_columns()
         ensure_event_date_columns()
         ensure_cabinet_type_column()
@@ -1623,6 +1716,8 @@ def ensure_schema_migrations():
     if not hasattr(app, '_schema_migrations_checked'):
         try:
             with app.app_context():
+                ensure_title_cover_column()
+                ensure_title_topics_column()
                 ensure_inventory_in_stock_column()
                 ensure_inventory_status_columns()
                 ensure_pg_search_indexes()

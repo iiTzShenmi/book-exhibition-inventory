@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 
 import app as app_module
+import pytest
 from app import (
     COVER_PLACEHOLDER_URL,
     cover_url_for_title,
@@ -12,7 +13,9 @@ from app import (
     normalize_cover_url,
     pg_env_from_database_url,
 )
-from database.models import AdminUser, AuditLog, BookTitle, db
+from database.models import AdminUser, AuditLog, BookTitle, Cabinet, Inventory, db
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
 
 
@@ -25,6 +28,14 @@ def test_security_headers_are_present(client):
     assert "script-src-attr 'none'" in csp
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_disabled_quick_guide_control_stays_hidden_on_mobile():
+    template = Path("templates/base.html").read_text(encoding="utf-8")
+    stylesheet = Path("static/css/exis_refresh.css").read_text(encoding="utf-8")
+
+    assert 'class="hero-brand__action u-hidden"' in template
+    assert ".hero-brand__action.u-hidden" in stylesheet
 
 
 def test_login_requires_csrf(client):
@@ -60,6 +71,170 @@ def test_logout_is_post_only(client):
     response = client.get("/logout")
 
     assert response.status_code == 405
+
+
+def test_view_tracking_requires_post_and_csrf(csrf_client):
+    title = BookTitle(title="Tracked view", view_count=0)
+    db.session.add(title)
+    db.session.commit()
+
+    get_response = csrf_client.get("/api/track_view?title=Tracked%20view")
+    assert get_response.status_code == 405
+
+    post_response = csrf_client.post(
+        "/api/track_view",
+        json={"title": "Tracked view"},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    assert post_response.status_code == 200
+    assert post_response.get_json()["success"] is True
+    assert db.session.get(BookTitle, title.id).view_count == 1
+
+
+def test_book_details_get_does_not_change_view_count(client):
+    title = BookTitle(title="Read-only details", view_count=0)
+    cabinet = Cabinet(name="Details cabinet", type="display")
+    db.session.add_all([title, cabinet])
+    db.session.flush()
+    db.session.add(Inventory(title_id=title.id, cabinet_id=cabinet.id, in_stock=True))
+    db.session.commit()
+
+    response = client.get("/book_details/Read-only%20details")
+
+    assert response.status_code == 200
+    assert db.session.get(BookTitle, title.id).view_count == 0
+
+
+def test_book_card_uses_declarative_actions_under_strict_csp(csrf_client):
+    title = BookTitle(title="CSP card")
+    cabinet = Cabinet(name="CSP display", type="display")
+    admin = AdminUser(
+        username="csp-admin",
+        email="csp-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([title, cabinet, admin])
+    db.session.flush()
+    db.session.add(Inventory(title_id=title.id, cabinet_id=cabinet.id, in_stock=True))
+    db.session.commit()
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = admin.username
+        sess["admin_id"] = admin.id
+        sess["admin_role"] = admin.role
+
+    response = csrf_client.get("/book_card/CSP%20card")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "onclick=" not in body
+    assert 'data-ui-action="open-book-modal"' in body
+    assert 'data-ui-action="open-cabinet-modal"' in body
+
+
+def test_schema_migration_adds_legacy_book_title_columns(client):
+    db.session.execute(text("DROP TABLE book_title"))
+    db.session.execute(
+        text(
+            "CREATE TABLE book_title ("
+            "id INTEGER PRIMARY KEY, "
+            "title VARCHAR(255) UNIQUE NOT NULL, "
+            "author VARCHAR(255)"
+            ")"
+        )
+    )
+    db.session.commit()
+
+    app_module.ensure_title_cover_column()
+    app_module.ensure_title_topics_column()
+
+    columns = {column["name"] for column in db.inspect(db.engine).get_columns("book_title")}
+    assert {"cover_link", "topics"}.issubset(columns)
+
+
+def test_quantity_column_migration_preserves_every_inventory_row(client):
+    title = BookTitle(title="Legacy inventory title")
+    cabinet = Cabinet(name="Legacy inventory cabinet", type="display")
+    db.session.add_all([title, cabinet])
+    db.session.commit()
+    db.session.execute(text("DROP TABLE inventory"))
+    db.session.execute(
+        text(
+            "CREATE TABLE inventory ("
+            "id INTEGER PRIMARY KEY, "
+            "title_id INTEGER NOT NULL, "
+            "cabinet_id INTEGER NOT NULL, "
+            "qty_on_hand INTEGER NOT NULL, "
+            "qty_reserved INTEGER NOT NULL, "
+            "in_stock BOOLEAN NOT NULL, "
+            "status TEXT NOT NULL, "
+            "deleted_at DATETIME, "
+            "created_at DATETIME, "
+            "updated_at DATETIME"
+            ")"
+        )
+    )
+    db.session.execute(
+        text(
+            "INSERT INTO inventory "
+            "(id, title_id, cabinet_id, qty_on_hand, qty_reserved, in_stock, status, deleted_at, created_at, updated_at) "
+            "VALUES (1, :title_id, :cabinet_id, 3, 1, 0, 'archived', '2026-01-01', '2025-01-01', '2025-01-02')"
+        ),
+        {"title_id": title.id, "cabinet_id": cabinet.id},
+    )
+    db.session.commit()
+
+    app_module.drop_quantity_columns_from_sqlite()
+    db.session.expire_all()
+
+    restored = db.session.get(Inventory, 1)
+    assert Inventory.query.count() == 1
+    assert restored.in_stock is False
+    assert restored.status == "archived"
+    assert restored.deleted_at is not None
+
+
+def test_quantity_column_migration_rolls_back_on_duplicate_inventory(client):
+    title = BookTitle(title="Duplicate legacy inventory")
+    cabinet = Cabinet(name="Duplicate legacy cabinet", type="display")
+    db.session.add_all([title, cabinet])
+    db.session.commit()
+    db.session.execute(text("DROP TABLE inventory"))
+    db.session.execute(
+        text(
+            "CREATE TABLE inventory ("
+            "id INTEGER PRIMARY KEY, "
+            "title_id INTEGER NOT NULL, "
+            "cabinet_id INTEGER NOT NULL, "
+            "qty_on_hand INTEGER NOT NULL, "
+            "qty_reserved INTEGER NOT NULL, "
+            "in_stock BOOLEAN NOT NULL, "
+            "status TEXT NOT NULL, "
+            "deleted_at DATETIME, "
+            "created_at DATETIME, "
+            "updated_at DATETIME"
+            ")"
+        )
+    )
+    db.session.execute(
+        text(
+            "INSERT INTO inventory "
+            "(id, title_id, cabinet_id, qty_on_hand, qty_reserved, in_stock, status) "
+            "VALUES "
+            "(1, :title_id, :cabinet_id, 1, 0, 1, 'active'), "
+            "(2, :title_id, :cabinet_id, 1, 0, 1, 'active')"
+        ),
+        {"title_id": title.id, "cabinet_id": cabinet.id},
+    )
+    db.session.commit()
+
+    with pytest.raises(IntegrityError):
+        app_module.drop_quantity_columns_from_sqlite()
+
+    columns = {column["name"] for column in db.inspect(db.engine).get_columns("inventory")}
+    assert {"qty_on_hand", "qty_reserved"}.issubset(columns)
+    assert db.session.execute(text("SELECT COUNT(*) FROM inventory")).scalar_one() == 2
 
 
 def test_admin_add_book_preview_requires_auth(csrf_client):

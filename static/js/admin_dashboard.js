@@ -989,63 +989,6 @@ async function toggleCabinetType(id) {
     // Already bound via event delegation above
   }
 
-  // Handle replenish hint clicks
-  document.addEventListener('click', async e => {
-    const hint = e.target.closest('.replenish-hint');
-    if (!hint) return;
-    e.preventDefault();
-    
-    const title = hint.dataset.title;
-    const displayCabinetId = Number(hint.dataset.displayCabinetId);
-    const reserveCabinetId = Number(hint.dataset.reserveCabinetId);
-    const reserveBookId = Number(hint.dataset.reserveBookId);
-    const reserveCabinetName = hint.dataset.reserveCabinetName || '備書櫃';
-
-    if (!window.confirm(`確定從「${reserveCabinetName}」補貨至展示櫃？`)) return;
-
-    hint.style.opacity = '0.6';
-    hint.style.pointerEvents = 'none';
-    const originalText = hint.textContent;
-    hint.textContent = '補貨中...';
-
-    try {
-      const res = await fetch(`/replenish/${encodeURIComponent(title)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headersWithCsrf(),
-        },
-        body: JSON.stringify({
-          display_cabinet_id: displayCabinetId,
-          reserve_cabinet_id: reserveCabinetId,
-          reserve_book_id: reserveBookId,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        showToast(data.message || '補貨失敗', false);
-        hint.style.opacity = '1';
-        hint.style.pointerEvents = 'auto';
-        hint.textContent = originalText;
-        return;
-      }
-
-      showToast(data.message || '補貨成功 ✅', true);
-      refreshNotificationsIfAvailable();
-      // Refresh the modal and book cards
-      await refreshModal(title);
-      await refreshBookCard(title);
-      const affectedTitles = data.affected_titles || [title];
-      await refreshBookCardsForTitles(affectedTitles);
-    } catch (err) {
-      console.error(err);
-      showToast('補貨失敗', false);
-      hint.style.opacity = '1';
-      hint.style.pointerEvents = 'auto';
-      hint.textContent = originalText;
-    }
-  });
-
   function bindActionToggleButtons() {
     document.querySelectorAll('.action-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1356,6 +1299,8 @@ async function toggleCabinetType(id) {
   window.closeCabinetBooksModal = closeCabinetBooksModal;
   window.closeMoveBookModal = closeMoveBookModal;
   window.refreshBookCard = refreshBookCard;
+  window.refreshBookCardsForTitles = refreshBookCardsForTitles;
+  window.refreshNotificationsIfAvailable = refreshNotificationsIfAvailable;
   window.refreshModal = refreshModal;
   window.refreshDashboardPage = () => window.location.reload();
   window.runBackup = runBackup;

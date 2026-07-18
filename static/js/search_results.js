@@ -37,7 +37,20 @@
 
     const trackView = (title) => {
       if (!title) return;
-      fetch(`/api/track_view?title=${encodeURIComponent(title)}`).catch(() => {});
+      if (typeof window.EXIS?.trackBookView === 'function') {
+        window.EXIS.trackBookView(title);
+        return;
+      }
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      fetch('/api/track_view', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrf,
+        },
+        body: JSON.stringify({ title }),
+      }).catch(() => {});
     };
 
     document.querySelectorAll('.result-card[data-title]').forEach(card => {

@@ -1129,6 +1129,10 @@ body:not(.is-admin) .hero-brand__home {
   margin-left: auto;
 }
 
+body:not(.is-admin) .hero-brand__action.u-hidden {
+  display: none;
+}
+
 body:not(.is-admin) .customer-search {
   width: 100%;
   margin-inline: 0;

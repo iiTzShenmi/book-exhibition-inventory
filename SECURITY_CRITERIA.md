@@ -36,12 +36,21 @@ Use this checklist before adding a route, admin action, background tool, import/
 
 ## Backup and Operations
 
+- Do not commit database backups, CSV exports, local SQLite files, or other operational data snapshots. Ignore rules do not protect files that are already tracked.
 - In-app `BackupArchive` records are convenience snapshots, not disaster recovery backups.
 - Durable recovery must use Render Postgres PITR/logical backups or an external object-store dump job.
 - Object-store dump jobs must create a PostgreSQL logical dump, validate it before upload, and verify the remote object after upload. The bucket must be independent, versioned, encrypted, and protected by retention/lifecycle rules.
 - `pg_dump` helpers must pass credentials through libpq environment variables, not command-line database URLs.
 - Files written on hosted web-service disks should be treated as ephemeral unless the platform explicitly provides durable storage.
 - Perform and document a restore drill into a non-production database at least quarterly. A backup that has not been restored is not verified recovery.
+
+## Data Integrity and Upgrades
+
+- State-changing endpoints must use POST, PATCH, PUT, or DELETE. GET and HEAD requests must remain safe and idempotent.
+- Validate workflow roles on the server, not only in the UI. For example, replenishment must verify both the source reserve cabinet and the target display cabinet.
+- Protect a workflow's source record and duplicate check in the same database transaction when concurrent requests could otherwise create duplicate or inconsistent inventory states.
+- Never delete a parent record when retained history still references it. Return a clear validation error or provide an explicit archival workflow instead.
+- Every model column added after the initial release needs an idempotent migration for supported existing databases, plus a regression test using a pre-migration schema.
 
 ## Verification Gate
 

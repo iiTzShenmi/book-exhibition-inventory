@@ -251,8 +251,6 @@ def book_details(title):
     if not books:
         return jsonify({"error": "Book not found"}), 404
 
-    _increment_view_count(title)
-
     is_admin = bool(session.get("is_admin"))
     grouped_map = build_grouped_book_entries(
         books,
@@ -274,7 +272,7 @@ def book_details(title):
             <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
           </div>
         {% endfor %}
-        <button class="close-btn" onclick="closeModal()">關閉</button>
+        <button type="button" class="close-btn" data-ui-action="close-book-modal">關閉</button>
         </div>
         """, title=title, entries=entries)
 
@@ -316,7 +314,7 @@ def book_details(title):
             {% endfor %}
             {% endif %}
         {% endfor %}
-        <button class="close-btn" onclick="closeModal()">關閉</button>
+        <button type="button" class="close-btn" data-ui-action="close-book-modal">關閉</button>
         </div>
         """, title=title, entries=entries, csrf_token=get_csrf_token())
 
@@ -348,14 +346,13 @@ def _increment_view_count(title: str, debounce_seconds: int = 10):
         db.session.rollback()
 
 
-@api_bp.route("/api/track_view", methods=["POST", "GET"])
+@api_bp.route("/api/track_view", methods=["POST"])
+@limiter.limit("60 per minute")
 def track_view():
     data = request.get_json(silent=True) or {}
     title = (data.get("title") or "").strip()
     if not title:
         title = (request.form.get("title") or "").strip()
-    if not title:
-        title = (request.args.get("title") or "").strip()
     if not title:
         return jsonify({"success": False, "message": "title required"}), 400
     title = " ".join(title.split())
@@ -418,7 +415,14 @@ def book_card(title):
         </div>
             {% if entry.notes %}
             {% for note in entry.notes %}
-            <div class="reserve-hint">
+            <div class="reserve-hint{% if entry.replenish %} replenish-hint{% endif %}"
+                {% if entry.replenish %}
+                data-title="{{ title }}"
+                data-display-cabinet-id="{{ entry.replenish.display_cabinet_id }}"
+                data-reserve-cabinet-id="{{ entry.replenish.reserve_cabinet_id }}"
+                data-reserve-book-id="{{ entry.replenish.reserve_book_id }}"
+                data-reserve-cabinet-name="{{ entry.replenish.reserve_cabinet_name }}"
+                {% endif %}>
                 <span>{{ note }}</span>
                 {% if entry.replenish %}
                 <div class="reserve-meta">
@@ -441,8 +445,8 @@ def book_card(title):
         {% endfor %}
       </div>
       <div class="edit-btn-container btn-group">
-        <button type="button" class="edit-btn btn--sm" onclick="openBookModal('{{ title }}')">編輯</button>
-        <button type="button" class="mini-btn secondary btn--sm" onclick="openCabinetModal('{{ title }}')">新增 / 移除 櫃位</button>
+        <button type="button" class="edit-btn btn--sm" data-ui-action="open-book-modal" data-title="{{ title }}">編輯</button>
+        <button type="button" class="mini-btn secondary btn--sm" data-ui-action="open-cabinet-modal" data-title="{{ title }}">新增 / 移除 櫃位</button>
       </div>
     </div>
     """, title=title, grouped=grouped)

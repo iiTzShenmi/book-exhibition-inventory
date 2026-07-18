@@ -21,6 +21,15 @@ def client():
     ctx.pop()
 
 
+def authenticate(client, admin):
+    with client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = admin.username
+        sess["admin_id"] = admin.id
+        sess["admin_role"] = admin.role
+        sess["csrf_token"] = "testtoken"
+
+
 def test_move_book_from_reserve_to_display(client):
     reserve = Cabinet(name="Reserve", type="reserve")
     display = Cabinet(name="Display", type="display")
@@ -38,12 +47,7 @@ def test_move_book_from_reserve_to_display(client):
     db.session.add(book)
     db.session.commit()
 
-    with client.session_transaction() as sess:
-        sess["is_admin"] = True
-        sess["admin_user"] = admin.username
-        sess["admin_id"] = admin.id
-        sess["admin_role"] = admin.role
-        sess["csrf_token"] = "testtoken"
+    authenticate(client, admin)
 
     resp = client.patch(
         f"/cabinets/{reserve.id}/books/{book.id}/move",
@@ -63,3 +67,131 @@ def test_move_book_from_reserve_to_display(client):
         Inventory.query.filter_by(cabinet_id=reserve.id, status="active").first()
         is None
     )
+
+
+def test_replenish_rejects_a_display_cabinet_as_source(client):
+    source = Cabinet(name="Not reserve", type="display")
+    target = Cabinet(name="Display target", type="display")
+    title = BookTitle(title="Replenish title")
+    admin = AdminUser(
+        username="replenish-admin",
+        email="replenish-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([source, target, title, admin])
+    db.session.flush()
+    source_book = Inventory(title_id=title.id, cabinet_id=source.id, in_stock=True)
+    db.session.add(source_book)
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.post(
+        f"/replenish/{title.title}",
+        json={
+            "display_cabinet_id": target.id,
+            "reserve_cabinet_id": source.id,
+            "reserve_book_id": source_book.id,
+        },
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    assert response.status_code == 400
+    assert "備書櫃" in response.get_json()["message"]
+    assert db.session.get(Inventory, source_book.id).cabinet_id == source.id
+
+
+def test_replenish_rejects_a_title_mismatch(client):
+    reserve = Cabinet(name="Reserve source", type="reserve")
+    target = Cabinet(name="Display target", type="display")
+    title = BookTitle(title="Expected title")
+    admin = AdminUser(
+        username="title-check-admin",
+        email="title-check-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([reserve, target, title, admin])
+    db.session.flush()
+    reserve_book = Inventory(title_id=title.id, cabinet_id=reserve.id, in_stock=True)
+    db.session.add(reserve_book)
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.post(
+        "/replenish/Unexpected%20title",
+        json={
+            "display_cabinet_id": target.id,
+            "reserve_cabinet_id": reserve.id,
+            "reserve_book_id": reserve_book.id,
+        },
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    assert response.status_code == 400
+    assert "書名" in response.get_json()["message"]
+    assert db.session.get(Inventory, reserve_book.id).cabinet_id == reserve.id
+
+
+def test_delete_cabinet_rejects_retained_archived_inventory(client):
+    cabinet = Cabinet(name="Archived history", type="display")
+    title = BookTitle(title="Archived book")
+    admin = AdminUser(
+        username="cabinet-delete-admin",
+        email="cabinet-delete-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([cabinet, title, admin])
+    db.session.flush()
+    db.session.add(
+        Inventory(
+            title_id=title.id,
+            cabinet_id=cabinet.id,
+            status="archived",
+            in_stock=False,
+        )
+    )
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.delete(
+        f"/cabinets/{cabinet.id}",
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    assert response.status_code == 400
+    assert Cabinet.query.get(cabinet.id) is not None
+
+
+def test_legacy_quantity_endpoints_reject_unsupported_changes(client):
+    cabinet = Cabinet(name="Quantity cabinet", type="display")
+    title = BookTitle(title="Quantity title")
+    admin = AdminUser(
+        username="quantity-admin",
+        email="quantity-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([cabinet, title, admin])
+    db.session.flush()
+    book = Inventory(title_id=title.id, cabinet_id=cabinet.id, in_stock=True)
+    db.session.add(book)
+    db.session.commit()
+    authenticate(client, admin)
+
+    adjust_response = client.patch(
+        f"/cabinets/{cabinet.id}/books/{book.id}/adjust",
+        json={"delta": 1},
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+    add_response = client.post(
+        "/add_book",
+        data={"title": "Another title", "cabinet_id": cabinet.id, "amount": "2"},
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    assert adjust_response.status_code == 409
+    assert add_response.status_code == 400
+    assert db.session.get(Inventory, book.id).status == "active"
+    assert BookTitle.query.filter_by(title="Another title").first() is None

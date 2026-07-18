@@ -166,6 +166,8 @@
         invoke(window.openBookModal, title);
       } else if (action === 'open-cabinet-modal') {
         invoke(window.openCabinetModal, title);
+      } else if (action === 'close-book-modal') {
+        invoke(window.closeBookModal);
       } else if (action === 'close-cabinet-modal') {
         invoke(window.closeCabinetModal);
       } else if (action === 'close-add-book-modal') {
@@ -736,11 +738,25 @@
     }
   });
 
+  function trackBookView(title) {
+    if (!title) return;
+    fetch('/api/track_view', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken,
+      },
+      body: JSON.stringify({ title }),
+    }).catch(() => {});
+  }
+
   function openBookModal(title) {
     const overlay = document.getElementById('book-modal-overlay');
     const box = document.getElementById('book-modal-box');
     if (!overlay || !box) return;
 
+    trackBookView(title);
     fetch(`/book_details/${encodeURIComponent(title)}`, { cache: 'no-store' })
       .then(res => res.text())
       .then(html => {
@@ -764,6 +780,7 @@
   window.openBookModal = openBookModal;
   window.closeBookModal = closeBookModal;
   window.closeModal = closeBookModal;
+  window.EXIS.trackBookView = trackBookView;
 
   let eventRotationTimer = null;
 
@@ -1565,6 +1582,18 @@
         }
 
         showToast(data.message || '補貨成功 ✅', true);
+        const affectedTitles = data.affected_titles || [title];
+        if (typeof window.refreshNotificationsIfAvailable === 'function') {
+          await window.refreshNotificationsIfAvailable();
+        }
+        if (typeof window.refreshModal === 'function') {
+          await window.refreshModal(title);
+        }
+        if (typeof window.refreshBookCardsForTitles === 'function') {
+          await window.refreshBookCardsForTitles(affectedTitles);
+        } else if (typeof window.refreshBookCard === 'function') {
+          await window.refreshBookCard(title);
+        }
         if (typeof window.openBookModal === 'function') {
           window.openBookModal(title);
         }

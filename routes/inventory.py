@@ -319,9 +319,8 @@ def delete_cabinet(cabinet_id):
         return jsonify({"success": False, "message": "未登入"}), 401
 
     cabinet = Cabinet.query.get_or_404(cabinet_id)
-    active_books = [b for b in cabinet.books if getattr(b, "status", "active") == "active"]
-    if active_books:
-        return jsonify({"success": False, "message": "櫃位仍有書籍，無法刪除"}), 400
+    if cabinet.books:
+        return jsonify({"success": False, "message": "櫃位仍有書籍或保留的庫存紀錄，無法刪除"}), 400
 
     try:
         deleted_payload = {"name": cabinet.name, "type": cabinet.type}
@@ -393,6 +392,11 @@ def adjust_cabinet_book_quantity(cabinet_id, book_id):
         delta = int(payload.get("delta", 0))
     except (TypeError, ValueError):
         return jsonify({"success": False, "message": "delta 必須為數字"}), 400
+    if delta != -1:
+        return jsonify({
+            "success": False,
+            "message": "EXIS 不追蹤數量；此操作僅支援 delta=-1 以移除書籍",
+        }), 409
 
     book = (
         active_books_query()
@@ -401,19 +405,13 @@ def adjust_cabinet_book_quantity(cabinet_id, book_id):
     )
 
     try:
-        if delta < 0:
-            title = book.title
-            book.status = "archived"
-            book.deleted_at = datetime.utcnow()
-            book.in_stock = False
-            log_action("adjust_quantity_delete", target=title, details=f"cabinet_id={cabinet_id},archived=true")
-            db.session.commit()
-            return jsonify({"success": True, "book_id": book_id, "affected_titles": [title]})
-
-        book.updated_at = datetime.utcnow()
-        log_action("adjust_quantity", target=book.title, details=f"cabinet_id={cabinet_id},delta={delta} (quantity tracking removed)")
+        title = book.title
+        book.status = "archived"
+        book.deleted_at = datetime.utcnow()
+        book.in_stock = False
+        log_action("adjust_quantity_delete", target=title, details=f"cabinet_id={cabinet_id},archived=true")
         db.session.commit()
-        return jsonify({"success": True, "book": book_to_dict(book), "affected_titles": [book.title]})
+        return jsonify({"success": True, "book_id": book_id, "affected_titles": [title]})
     except Exception:
         return _operation_failed()
 
@@ -425,7 +423,16 @@ def add_book():
 
     title = request.form.get("title", "").strip()
     cabinet_id = request.form.get("cabinet_id", type=int)
-    amount = request.form.get("amount", type=int, default=1)
+    amount_raw = (request.form.get("amount") or "1").strip()
+    try:
+        amount = int(amount_raw)
+    except ValueError:
+        return jsonify({"success": False, "message": "amount 必須為整數"}), 400
+    if amount != 1:
+        return jsonify({
+            "success": False,
+            "message": "EXIS 不追蹤數量；每次只能新增一筆書名與櫃位紀錄",
+        }), 400
     author = request.form.get("author", "").strip()
     cover_url = request.form.get("cover_url", "").strip()
     topics_raw = request.form.get("topics", "").strip()
@@ -498,8 +505,11 @@ def move_cabinet_book(cabinet_id, book_id):
     if not session.get("is_admin"):
         return jsonify({"success": False, "message": "未登入"}), 401
 
+    source_query = active_books_query()
+    if is_postgres():
+        source_query = source_query.with_for_update()
     book = (
-        active_books_query()
+        source_query
         .filter_by(id=book_id, cabinet_id=cabinet_id)
         .first_or_404()
     )
@@ -568,13 +578,29 @@ def replenish_from_reserve(title):
         return jsonify({"success": False, "message": "缺少必要參數"}), 400
     
     try:
+        reserve_cabinet_query = Cabinet.query
+        if is_postgres():
+            reserve_cabinet_query = reserve_cabinet_query.with_for_update()
+        reserve_cabinet = reserve_cabinet_query.filter_by(id=reserve_cabinet_id).first()
+        if not reserve_cabinet:
+            return jsonify({"success": False, "message": "來源櫃位不存在"}), 404
+        if cabinet_type_name(reserve_cabinet) != "reserve":
+            return jsonify({"success": False, "message": "來源櫃位必須是備書櫃"}), 400
+
         reserve_query = active_books_query().with_for_update() if is_postgres() else active_books_query()
         reserve_book = reserve_query.filter_by(
             id=reserve_book_id,
             cabinet_id=reserve_cabinet_id
-        ).first_or_404()
+        ).first()
+        if not reserve_book:
+            return jsonify({"success": False, "message": "來源書籍不存在"}), 404
+
+        if reserve_book.title != title:
+            return jsonify({"success": False, "message": "補貨書名與來源書籍不一致"}), 400
         
-        display_cabinet = Cabinet.query.get_or_404(display_cabinet_id)
+        display_cabinet = Cabinet.query.get(display_cabinet_id)
+        if not display_cabinet:
+            return jsonify({"success": False, "message": "目標櫃位不存在"}), 404
         if (display_cabinet.type or "").strip().lower() != "display":
             return jsonify({"success": False, "message": "目標櫃位必須是展示櫃"}), 400
         
