@@ -150,8 +150,12 @@
               authorCell.classList.add('text-success');
             }
             const coverCell = row.querySelector('.import-cover');
-            if (coverCell && item.cover_url) {
-              coverCell.innerHTML = `<img src="${item.cover_url}" alt="" class="fade-in">`;
+            if (coverCell && window.EXIS?.isAllowedCoverUrl?.(item.cover_url)) {
+              const image = document.createElement('img');
+              image.src = item.cover_url;
+              image.alt = '';
+              image.className = 'fade-in';
+              coverCell.replaceChildren(image);
             }
           });
 

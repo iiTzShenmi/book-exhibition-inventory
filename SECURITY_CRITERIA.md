@@ -31,25 +31,29 @@ Use this checklist before adding a route, admin action, background tool, import/
 - `requirements.txt` is the production runtime contract. Keep it small and pinned.
 - Put test/security tools in `requirements-dev.txt`; put optional import/scraping helpers in `requirements-tools.txt`.
 - Do not add `psycopg2-binary` to production runtime dependencies.
-- CI must install the same runtime dependency set that production uses, then run tests, `pip-audit`, and Bandit.
+- CI must install the same runtime dependency set that production uses, then run tests, `pip-audit`, Bandit, and a frontend DOM-sink guard.
 - Dependabot security updates should stay enabled for pip dependencies.
 
 ## Backup and Operations
 
 - In-app `BackupArchive` records are convenience snapshots, not disaster recovery backups.
 - Durable recovery must use Render Postgres PITR/logical backups or an external object-store dump job.
+- Object-store dump jobs must create a PostgreSQL logical dump, validate it before upload, and verify the remote object after upload. The bucket must be independent, versioned, encrypted, and protected by retention/lifecycle rules.
 - `pg_dump` helpers must pass credentials through libpq environment variables, not command-line database URLs.
 - Files written on hosted web-service disks should be treated as ephemeral unless the platform explicitly provides durable storage.
+- Perform and document a restore drill into a non-production database at least quarterly. A backup that has not been restored is not verified recovery.
 
 ## Verification Gate
 
 Before merging a security-sensitive add-on, run:
 
 ```bash
-python -m py_compile app.py routes/auth.py routes/admin.py routes/inventory.py routes/api.py database/models.py database/tools/cloud_db_download.py
+python -m py_compile app.py routes/auth.py routes/admin.py routes/inventory.py routes/api.py database/models.py database/tools/cloud_db_download.py database/tools/offsite_backup.py
 pytest
 pip-audit -r requirements.txt --progress-spinner off
+pip-audit -r requirements-tools.txt --progress-spinner off
 bandit -r . -x ./tests -ll
+if rg -n "innerHTML|insertAdjacentHTML|outerHTML|document\\.write" static/js templates; then exit 1; fi
 ```
 
 Add or update regression tests for any new auth, CSRF, export, import, backup, dependency, or DOM-rendering behavior.

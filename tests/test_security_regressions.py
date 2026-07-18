@@ -129,6 +129,16 @@ def test_cover_urls_are_allowlisted():
     assert cover_url_for_title(title) == COVER_PLACEHOLDER_URL
 
 
+def test_frontend_sources_do_not_use_html_rendering_sinks():
+    forbidden_sinks = ("innerHTML", "insertAdjacentHTML", "outerHTML", "document.write")
+    sources = [*Path("static/js").rglob("*.js"), *Path("templates").rglob("*.html")]
+
+    for source in sources:
+        content = source.read_text(encoding="utf-8")
+        for sink in forbidden_sinks:
+            assert sink not in content, f"{source} contains forbidden DOM sink {sink}"
+
+
 def test_service_worker_does_not_cache_cover_critical_assets():
     worker = Path("static/sw.js").read_text(encoding="utf-8")
 

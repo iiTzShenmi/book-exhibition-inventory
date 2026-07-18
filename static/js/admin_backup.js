@@ -26,8 +26,13 @@
           const item = document.createElement('div');
           item.className = 'backup-item';
           const ts = (data.backup.created_at || '').replace('T', ' ').slice(0, 16);
-          item.innerHTML = `<strong>${ts}</strong> <span class="muted">(${data.backup.size_kb} KB)</span>`;
-          list.innerHTML = '';
+          const timestamp = document.createElement('strong');
+          timestamp.textContent = ts;
+          const size = document.createElement('span');
+          size.className = 'muted';
+          size.textContent = ` (${data.backup.size_kb} KB)`;
+          item.append(timestamp, size);
+          list.replaceChildren();
           list.appendChild(item);
         }
         toast(data.message || '備份完成', true);

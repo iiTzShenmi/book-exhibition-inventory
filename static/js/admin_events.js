@@ -120,6 +120,25 @@
       const hidden = picker.querySelector('.book-ids-input');
       if (!input || !dropdown || !tags || !hidden) return;
 
+      const canUseCoverUrl = (url) => Boolean(window.EXIS?.isAllowedCoverUrl?.(url));
+
+      const makeRemoveButton = () => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'tag-remove';
+        button.setAttribute('aria-label', '移除');
+        button.textContent = '×';
+        return button;
+      };
+
+      const makeBookTag = (book) => {
+        const tag = document.createElement('span');
+        tag.className = 'book-tag';
+        tag.dataset.id = String(book.id);
+        tag.append(document.createTextNode(book.title || ''), makeRemoveButton());
+        return tag;
+      };
+
       const selected = new Map();
       tags.querySelectorAll('.book-tag').forEach((tag) => {
         const id = Number(tag.dataset.id);
@@ -134,11 +153,7 @@
       const addTag = (book) => {
         if (!book || selected.has(book.id)) return;
         selected.set(book.id, book);
-        const tag = document.createElement('span');
-        tag.className = 'book-tag';
-        tag.dataset.id = String(book.id);
-        tag.innerHTML = `${book.title}<button type="button" class="tag-remove" aria-label="移除">×</button>`;
-        tags.appendChild(tag);
+        tags.appendChild(makeBookTag(book));
         syncHidden();
       };
 
@@ -156,14 +171,14 @@
         const query = event.target.value.trim();
         if (query.length < 2) {
           dropdown.style.display = 'none';
-          dropdown.innerHTML = '';
+          dropdown.replaceChildren();
           return;
         }
         try {
           const res = await fetch(`/api/book_titles?q=${encodeURIComponent(query)}`);
           const data = await res.json();
           const results = Array.isArray(data?.results) ? data.results : [];
-          dropdown.innerHTML = '';
+          dropdown.replaceChildren();
           if (!results.length) {
             dropdown.style.display = 'none';
             return;
@@ -173,10 +188,20 @@
             item.className = 'picker-item';
             item.dataset.id = String(book.id);
             item.dataset.title = book.title || '';
-            item.innerHTML = `
-              ${book.cover_url ? `<img src="${book.cover_url}" alt="${book.title || ''}">` : '<span class="picker-cover-placeholder">📘</span>'}
-              <span>${book.title || ''}</span>
-            `;
+            if (canUseCoverUrl(book.cover_url)) {
+              const cover = document.createElement('img');
+              cover.src = book.cover_url;
+              cover.alt = book.title || '';
+              item.appendChild(cover);
+            } else {
+              const placeholder = document.createElement('span');
+              placeholder.className = 'picker-cover-placeholder';
+              placeholder.setAttribute('aria-hidden', 'true');
+              item.appendChild(placeholder);
+            }
+            const title = document.createElement('span');
+            title.textContent = book.title || '';
+            item.appendChild(title);
             dropdown.appendChild(item);
           });
           dropdown.style.display = 'block';
@@ -193,7 +218,7 @@
         const title = item.dataset.title || '';
         addTag({ id, title });
         dropdown.style.display = 'none';
-        dropdown.innerHTML = '';
+        dropdown.replaceChildren();
         input.value = '';
       });
 
@@ -209,15 +234,11 @@
       }));
       picker._setSelected = (books = []) => {
         selected.clear();
-        tags.innerHTML = '';
+        tags.replaceChildren();
         books.forEach((book) => {
           if (!book || !Number.isFinite(Number(book.id))) return;
           selected.set(Number(book.id), { id: Number(book.id), title: book.title || '' });
-          const tag = document.createElement('span');
-          tag.className = 'book-tag';
-          tag.dataset.id = String(book.id);
-          tag.innerHTML = `${book.title || ''}<button type="button" class="tag-remove" aria-label="移除">×</button>`;
-          tags.appendChild(tag);
+          tags.appendChild(makeBookTag(book));
         });
         syncHidden();
       };
@@ -239,7 +260,16 @@
 
     const timeOptions = buildTimeOptions();
     document.querySelectorAll('.time-select').forEach((select) => {
-      select.innerHTML = '<option value="">--:--</option>' + timeOptions.map((t) => `<option value="${t}">${t}</option>`).join('');
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '--:--';
+      const options = timeOptions.map((time) => {
+        const option = document.createElement('option');
+        option.value = time;
+        option.textContent = time;
+        return option;
+      });
+      select.replaceChildren(placeholder, ...options);
     });
 
     const syncTimeText = (form) => {

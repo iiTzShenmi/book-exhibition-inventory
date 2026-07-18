@@ -171,6 +171,24 @@ The separate `docs/` folder has been merged into this README. Key operational no
 - Backups live in `database/backups/` (keep as needed).
 - In-app `BackupArchive` records are convenience snapshots, not disaster recovery backups. Use Render Postgres PITR/logical backups or an external object-store dump job for durable recovery.
 
+### Durable Offsite Backups
+
+`database.tools.offsite_backup` creates a custom-format `pg_dump`, validates it with
+`pg_restore --list`, uploads it to an independent S3-compatible object store, and
+checks the uploaded object size. It keeps database credentials in libpq environment
+variables rather than the process command line.
+
+1. Create a separate bucket with versioning, default encryption, retention/lifecycle rules, and an IAM principal limited to that bucket.
+2. Create the Render cron service from `render.offsite-backup.yaml`, then set `DATABASE_URL`, `EXIS_BACKUP_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `EXIS_BACKUP_S3_REGION` as secrets. Set `EXIS_BACKUP_S3_ENDPOINT_URL` for another S3-compatible provider. `EXIS_BACKUP_S3_PREFIX` defaults to `exis/postgres`.
+3. Run a one-time job and verify its object appears in the separate bucket. The scheduled job is daily at 02:00 UTC by default; adjust the cron expression to the required recovery point objective.
+4. At least quarterly, restore one backup into a separate non-production database and verify the application can read it. Never test a restore against the production database.
+
+To verify a specific stored backup without creating a new dump:
+
+```bash
+python -m database.tools.offsite_backup --verify-key exis/postgres/2026/07/18/exis-postgres-20260718T020000Z.dump
+```
+
 ### Dependency Files
 - `requirements.txt` is the production/runtime dependency contract used by CI and Render.
 - `requirements-dev.txt` adds test and security tooling.
@@ -191,7 +209,7 @@ Core tables:
 Deployed on Render with:
 - PostgreSQL database
 - Gunicorn WSGI server
-- Automatic backups
+- In-app convenience snapshots plus a separately configured offsite backup cron job
 - Pre-deploy command: `python -m database.tools.db_tools init-db --no-sync-csv`
 - Start command: `EXIS_AUTO_INIT=0 gunicorn app:app`
 
@@ -207,3 +225,5 @@ CI runs:
 - Python compile checks for the main app/routes/tools
 - `pytest` with `-q --tb=short` from `pytest.ini`
 - `pip-audit -r requirements.txt --progress-spinner off`
+- `pip-audit -r requirements-tools.txt --progress-spinner off`
+- A DOM-sink guard for `static/js/` and `templates/`

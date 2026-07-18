@@ -147,9 +147,9 @@ def _create_backup_archive(note: str | None = None) -> BackupArchive:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     filename = f"backup_{timestamp}.csv"
     backup_note = note or f"Auto backup: {count} books"
-    external_path = _write_external_backup_copy(filename, csv_string)
-    if external_path:
-        backup_note = f"{backup_note}; external_copy={external_path}"
+    local_export_path = _write_external_backup_copy(filename, csv_string)
+    if local_export_path:
+        backup_note = f"{backup_note}; local_export={local_export_path}"
 
     new_backup = BackupArchive(
         filename=filename,
@@ -428,9 +428,9 @@ def admin_backup():
         "message": "備份已成功儲存至資料庫",
         "backup": new_backup.to_dict(),
         "dr_note": (
-            "已同時寫出外部備份副本。"
+            "已同時寫出指定本機掛載目錄；此副本本身不構成災難復原。"
             if os.environ.get("EXIS_BACKUP_EXPORT_DIR")
-            else "資料庫內建備份僅供快速回復；災難復原請使用 Render PITR/logical backup 或設定 EXIS_BACKUP_EXPORT_DIR 到持久化儲存。"
+            else "資料庫內建備份僅供快速回復；災難復原請使用 Render PITR 或排程的物件儲存邏輯備份。"
         ),
         "timestamp": new_backup.created_at.isoformat() if new_backup.created_at else "",
     })

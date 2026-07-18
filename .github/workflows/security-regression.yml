@@ -31,11 +31,17 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Compile Python
         run: |
-          python -m py_compile app.py routes/auth.py routes/admin.py routes/inventory.py routes/api.py database/models.py tools/create_admin_code.py database/tools/db_tools.py
+          python -m py_compile app.py routes/auth.py routes/admin.py routes/inventory.py routes/api.py database/models.py tools/create_admin_code.py database/tools/db_tools.py database/tools/offsite_backup.py
       - name: Run regression tests
         run: pytest
-      - name: Audit pinned dependencies
+      - name: Audit pinned runtime and tool dependencies
         run: |
           pip-audit -r requirements.txt --progress-spinner off
+          pip-audit -r requirements-tools.txt --progress-spinner off
       - name: Static security scan
         run: bandit -r . -x ./tests -ll
+      - name: Guard frontend DOM sinks
+        run: |
+          if rg -n "innerHTML|insertAdjacentHTML|outerHTML|document\\.write" static/js templates; then
+            exit 1
+          fi
