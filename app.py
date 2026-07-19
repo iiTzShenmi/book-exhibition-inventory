@@ -26,7 +26,7 @@ from database.models import EventSchedule, BackupArchive, event_books
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-APP_VERSION = "2.3.1"
+APP_VERSION = "2.3.2"
 DATA_DIR = os.path.join(BASE_DIR, "database")
 os.makedirs(DATA_DIR, exist_ok=True)
 CSV_PATH = os.path.join(DATA_DIR, "inventory.csv")
