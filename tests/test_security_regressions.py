@@ -1,6 +1,6 @@
-import json
 import csv
 import io
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import app as app_module
@@ -13,7 +13,16 @@ from app import (
     normalize_cover_url,
     pg_env_from_database_url,
 )
-from database.models import AdminUser, AuditLog, BookTitle, Cabinet, Inventory, db
+from database.models import (
+    AdminInvite,
+    AdminUser,
+    AuditLog,
+    BookTitle,
+    Cabinet,
+    Inventory,
+    IssueReport,
+    db,
+)
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
@@ -70,6 +79,35 @@ def test_login_uses_external_stylesheet_under_strict_csp(client):
     stylesheet = client.get("/static/css/login.css")
     assert stylesheet.status_code == 200
     assert b"body.login-page" in stylesheet.data
+
+
+def test_system_audit_log_starts_collapsed_until_expanded(csrf_client):
+    user = AdminUser(
+        username="system-admin",
+        email="system-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="advance-admin",
+    )
+    db.session.add(user)
+    db.session.commit()
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = user.username
+        sess["admin_id"] = user.id
+        sess["admin_role"] = user.role
+
+    response = csrf_client.get("/admin/system")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'class="card admin-audit-card is-collapsed"' in body
+    assert 'id="audit-toggle"' in body
+    assert 'aria-expanded="false"' in body
+    assert 'id="audit-body" aria-hidden="true"' in body
+
+    script = Path("static/js/admin_system.js").read_text(encoding="utf-8")
+    assert "const setExpanded" in script
+    assert "toggle.setAttribute('aria-expanded'" in script
 
 
 def test_csrf_rejects_client_seeded_token(client):
@@ -276,7 +314,147 @@ def test_admin_add_book_preview_requires_auth(csrf_client):
     assert response.get_json()["success"] is False
 
 
-def test_issue_report_persists_with_csrf(csrf_client):
+def _create_invite(code, expires_at):
+    invite = AdminInvite(
+        code=app_module.invite_reference(),
+        code_hash=app_module.hash_invite_code(code),
+        code_lookup=app_module.invite_code_lookup(code),
+        role="admin",
+        expires_at=expires_at,
+    )
+    db.session.add(invite)
+    db.session.commit()
+    return invite
+
+
+def _registration_payload(code, **overrides):
+    payload = {
+        "username": "new-admin",
+        "email": "new-admin@example.com",
+        "password": "secure-password",
+        "confirm_password": "secure-password",
+        "security_code": code,
+        "csrf_token": "test-csrf",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_registration_rejects_expired_invites(csrf_client):
+    invite = _create_invite("expired-invite", datetime.utcnow() - timedelta(minutes=1))
+
+    response = csrf_client.post("/register", data=_registration_payload("expired-invite"))
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "註冊資訊無法驗證" in body
+    assert db.session.get(AdminInvite, invite.id).used_at is None
+    assert AdminUser.query.filter_by(username="new-admin").first() is None
+
+
+def test_registration_failures_do_not_disclose_existing_account_details(csrf_client):
+    db.session.add(
+        AdminUser(
+            username="existing-admin",
+            email="existing@example.com",
+            password_hash=generate_password_hash("pass"),
+            role="admin",
+        )
+    )
+    db.session.commit()
+    _create_invite("valid-invite", datetime.utcnow() + timedelta(hours=1))
+
+    response = csrf_client.post(
+        "/register",
+        data=_registration_payload(
+            "valid-invite",
+            username="existing-admin",
+            email="different@example.com",
+        ),
+    )
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "註冊資訊無法驗證" in body
+    assert "此帳號已存在" not in body
+    assert "此 Email 已存在" not in body
+
+
+def test_registration_redeems_a_valid_invite_only_once(csrf_client):
+    invite = _create_invite("redeem-once-invite", datetime.utcnow() + timedelta(hours=1))
+
+    first_response = csrf_client.post(
+        "/register",
+        data=_registration_payload("redeem-once-invite"),
+    )
+    db.session.expire_all()
+    redeemed = db.session.get(AdminInvite, invite.id)
+    with csrf_client.session_transaction() as sess:
+        sess.clear()
+        sess["csrf_token"] = "test-csrf"
+    second_response = csrf_client.post(
+        "/register",
+        data=_registration_payload(
+            "redeem-once-invite",
+            username="second-admin",
+            email="second-admin@example.com",
+        ),
+    )
+
+    assert first_response.status_code == 302
+    assert AdminUser.query.filter_by(username="new-admin").one().role == "admin"
+    assert redeemed.used_at is not None
+    assert second_response.status_code == 200
+    assert "註冊資訊無法驗證" in second_response.get_data(as_text=True)
+    assert AdminUser.query.filter_by(username="second-admin").first() is None
+
+
+def test_invite_claim_is_single_use(csrf_client):
+    invite = _create_invite("single-use-invite", datetime.utcnow() + timedelta(hours=1))
+
+    assert app_module.claim_invite(invite.id) is True
+    db.session.commit()
+    assert app_module.claim_invite(invite.id) is False
+    db.session.rollback()
+
+
+def test_security_migration_expires_legacy_invites(client):
+    db.session.execute(text("DROP TABLE admin_invite"))
+    db.session.execute(
+        text(
+            "CREATE TABLE admin_invite ("
+            "id INTEGER PRIMARY KEY, "
+            "code VARCHAR(32) UNIQUE NOT NULL, "
+            "code_hash VARCHAR(255), "
+            "code_lookup VARCHAR(64), "
+            "memo VARCHAR(255), "
+            "role VARCHAR(32), "
+            "created_at DATETIME, "
+            "used_at DATETIME"
+            ")"
+        )
+    )
+    db.session.execute(
+        text(
+            "INSERT INTO admin_invite "
+            "(id, code, code_hash, code_lookup, role, created_at) "
+            "VALUES (1, 'legacy-reference', 'legacy-hash', 'legacy-lookup', 'admin', :created_at)"
+        ),
+        {"created_at": datetime.utcnow()},
+    )
+    db.session.commit()
+
+    app_module.apply_security_remediation_migration()
+
+    columns = {column["name"] for column in db.inspect(db.engine).get_columns("admin_invite")}
+    expires_at = db.session.execute(
+        text("SELECT expires_at FROM admin_invite WHERE id = 1")
+    ).scalar_one()
+    assert "expires_at" in columns
+    assert expires_at is not None
+
+
+def test_issue_report_persists_separately_from_audit_log(csrf_client):
     response = csrf_client.post(
         "/api/report_issue",
         json={"name": "tester", "type": "bug", "description": "button failed"},
@@ -285,10 +463,136 @@ def test_issue_report_persists_with_csrf(csrf_client):
 
     assert response.status_code == 200
     assert response.get_json()["success"] is True
-    log = AuditLog.query.filter_by(action="issue_report").one()
-    details = json.loads(log.details)
-    assert details["type"] == "bug"
-    assert details["description"] == "button failed"
+    report = IssueReport.query.one()
+    assert report.category == "bug"
+    assert report.description == "button failed"
+    assert AuditLog.query.filter_by(action="issue_report").count() == 0
+
+
+def test_issue_report_rejects_non_json_and_unexpected_fields(csrf_client):
+    non_json_response = csrf_client.post(
+        "/api/report_issue",
+        data="not json",
+        content_type="text/plain",
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    extra_field_response = csrf_client.post(
+        "/api/report_issue",
+        json={
+            "name": "tester",
+            "type": "bug",
+            "description": "button failed",
+            "unexpected": "value",
+        },
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert non_json_response.status_code == 415
+    assert extra_field_response.status_code == 400
+    assert IssueReport.query.count() == 0
+
+
+def test_issue_report_rejects_control_characters(csrf_client):
+    response = csrf_client.post(
+        "/api/report_issue",
+        json={"name": "tester", "type": "bug", "description": "button\u0000failed"},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert response.status_code == 400
+    assert IssueReport.query.count() == 0
+
+
+def test_issue_report_honeypot_and_deduplication(csrf_client):
+    payload = {"name": "tester", "type": "bug", "description": "button failed"}
+    honeypot_response = csrf_client.post(
+        "/api/report_issue",
+        json={**payload, "website": "https://spam.invalid"},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    first_response = csrf_client.post(
+        "/api/report_issue",
+        json=payload,
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    repeated_response = csrf_client.post(
+        "/api/report_issue",
+        json=payload,
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert honeypot_response.status_code == 200
+    assert first_response.status_code == 200
+    assert repeated_response.status_code == 200
+    assert IssueReport.query.count() == 1
+
+
+def test_advance_admin_can_review_escaped_issue_reports(csrf_client):
+    user = AdminUser(
+        username="issue-reviewer",
+        email="issue-reviewer@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="advance-admin",
+    )
+    db.session.add_all(
+        [
+            user,
+            IssueReport(
+                reporter_name="reporter",
+                category="bug",
+                description='<img src=x onerror="alert(1)">',
+                source_path="/",
+                fingerprint="a" * 64,
+            ),
+        ]
+    )
+    db.session.commit()
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = user.username
+        sess["admin_id"] = user.id
+        sess["admin_role"] = user.role
+
+    response = csrf_client.get("/admin/system")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "公開問題回報" in body
+    assert "&lt;img src=x onerror=&#34;alert(1)&#34;&gt;" in body
+
+
+def test_standard_admin_cannot_view_issue_reports(csrf_client):
+    user = AdminUser(
+        username="standard-admin",
+        email="standard-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all(
+        [
+            user,
+            IssueReport(
+                reporter_name="reporter",
+                category="bug",
+                description="private public-report content",
+                source_path="/",
+                fingerprint="b" * 64,
+            ),
+        ]
+    )
+    db.session.commit()
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = user.username
+        sess["admin_id"] = user.id
+        sess["admin_role"] = user.role
+
+    response = csrf_client.get("/admin/system")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "公開問題回報" not in body
+    assert "private public-report content" not in body
 
 
 def test_login_clears_existing_session_and_rotates_csrf(client):
@@ -330,6 +634,12 @@ def test_cover_urls_are_allowlisted():
 
     title = BookTitle(title="Unsafe Cover", cover_link="https://evil.example/pixel.png")
     assert cover_url_for_title(title) == COVER_PLACEHOLDER_URL
+
+
+def test_external_links_use_noopener_and_noreferrer():
+    template = Path("templates/base.html").read_text(encoding="utf-8")
+
+    assert 'target="_blank" rel="noopener noreferrer"' in template
 
 
 def test_frontend_sources_do_not_use_html_rendering_sinks():

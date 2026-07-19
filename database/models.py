@@ -136,7 +136,23 @@ class AdminInvite(db.Model):
     memo = db.Column(db.String(255))
     role = db.Column(db.String(50), nullable=False, default="admin")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
     used_at = db.Column(db.DateTime, nullable=True)
+
+
+class IssueReport(db.Model):
+    """Public issue reports, kept separate from the immutable audit trail."""
+
+    __tablename__ = "issue_report"
+
+    id = db.Column(db.Integer, primary_key=True)
+    reporter_name = db.Column(db.String(80), nullable=False)
+    category = db.Column(db.String(40), nullable=False, index=True)
+    description = db.Column(db.Text, nullable=False)
+    source_path = db.Column(db.String(255), nullable=True)
+    fingerprint = db.Column(db.String(64), nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default="open", index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)
 
 
 class ViewEvent(db.Model):

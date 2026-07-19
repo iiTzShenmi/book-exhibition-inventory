@@ -4,11 +4,12 @@ import secrets
 from flask import Blueprint, redirect, render_template, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.models import AdminInvite, AdminUser, db
-from app import find_valid_invite, log_action, limiter
+from database.models import AdminUser, db
+from app import claim_invite, find_valid_invite, log_action, limiter
 
 
 auth_bp = Blueprint("auth", __name__)
+REGISTRATION_FAILURE_MESSAGE = "註冊資訊無法驗證，請確認資料與邀請碼後再試。"
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -57,33 +58,49 @@ def register():
         confirm = request.form.get("confirm_password") or ""
         sec_code = (request.form.get("security_code") or "").strip()
 
-        if not username or not password or not email or not sec_code:
-            error = "請填寫所有欄位"
-        elif len(password) < 6:
-            error = "密碼至少 6 碼"
-        elif password != confirm:
-            error = "密碼確認不一致"
-        elif AdminUser.query.filter_by(username=username).first():
-            error = "此帳號已存在"
-        elif AdminUser.query.filter_by(email=email).first():
-            error = "此 Email 已存在"
-        else:
-            invite = find_valid_invite(sec_code)
-            if not invite:
-                error = "安全碼無效或已使用，請向網站擁有者確認"
-            else:
-                role = invite.role or "admin"
-                user = AdminUser(
-                    username=username,
-                    email=email,
-                    password_hash=generate_password_hash(password),
-                    role=role,
-                )
-                db.session.add(user)
-                invite.used_at = datetime.utcnow()
-                log_action("register_admin", target=username, details=f"role={role}")
-                db.session.commit()
+        invalid_input = (
+            not username
+            or not password
+            or not email
+            or not sec_code
+            or len(password) < 6
+            or password != confirm
+        )
+        existing_user = (
+            AdminUser.query.filter_by(username=username).first()
+            if username
+            else None
+        )
+        existing_email = (
+            AdminUser.query.filter_by(email=email).first()
+            if email
+            else None
+        )
+        invite = find_valid_invite(sec_code) if not invalid_input else None
 
+        if invalid_input or existing_user or existing_email or not invite:
+            error = REGISTRATION_FAILURE_MESSAGE
+        else:
+            role = invite.role or "admin"
+            user = AdminUser(
+                username=username,
+                email=email,
+                password_hash=generate_password_hash(password),
+                role=role,
+            )
+            try:
+                db.session.add(user)
+                if not claim_invite(invite.id, datetime.utcnow()):
+                    db.session.rollback()
+                    error = REGISTRATION_FAILURE_MESSAGE
+                else:
+                    log_action("register_admin", target=username, details=f"role={role}")
+                    db.session.commit()
+            except Exception:
+                db.session.rollback()
+                error = REGISTRATION_FAILURE_MESSAGE
+
+            if error is None:
                 session.clear()
                 session["is_admin"] = True
                 session["admin_user"] = user.username

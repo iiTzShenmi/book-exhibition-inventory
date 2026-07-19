@@ -13,7 +13,7 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from sqlalchemy import func
 from werkzeug.security import check_password_hash
 
-from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, BackupArchive, Inventory, AdminUser, db
+from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, BackupArchive, Inventory, AdminUser, IssueReport, db
 from similarity import parse_topics_field
 from app import (
     active_books_query,
@@ -362,6 +362,7 @@ def system_page():
 
     logs = []
     recent_backups = []
+    issue_reports = []
     if can_view_sensitive:
         logs = (
             AuditLog.query.order_by(AuditLog.created_at.desc())
@@ -369,12 +370,14 @@ def system_page():
             .all()
         )
         recent_backups = BackupArchive.query.order_by(BackupArchive.created_at.desc()).limit(5).all()
+        issue_reports = IssueReport.query.order_by(IssueReport.created_at.desc()).limit(200).all()
 
     return render_template(
         "admin_system.html",
         title="系統",
         audit_logs=logs,
         recent_backups=recent_backups,
+        issue_reports=issue_reports,
         can_upload=can_upload,
         can_view_sensitive=can_view_sensitive,
         show_top_sellers=False,

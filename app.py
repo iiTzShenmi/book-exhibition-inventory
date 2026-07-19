@@ -23,10 +23,11 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from tools import env_loader  # loads .env into os.environ
 from database.models import TopSellerSnapshot, db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
 from database.models import EventSchedule, BackupArchive, event_books
+from database.migrations.security_remediation_20260719 import upgrade as upgrade_security_remediation_20260719
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-APP_VERSION = "2.3.4"
+APP_VERSION = "2.3.5"
 DATA_DIR = os.path.join(BASE_DIR, "database")
 os.makedirs(DATA_DIR, exist_ok=True)
 CSV_PATH = os.path.join(DATA_DIR, "inventory.csv")
@@ -1167,19 +1168,36 @@ def invite_reference(invite_id: int | None = None) -> str:
     return f"issued-{suffix}-{secrets.token_hex(4)}"[:32]
 
 
+def invite_expiration(now: datetime | None = None) -> datetime:
+    """Return the configured expiry for a newly issued admin invite."""
+    ttl_hours = max(1, min(env_int("ADMIN_INVITE_TTL_HOURS", 72), 720))
+    return (now or datetime.utcnow()) + timedelta(hours=ttl_hours)
+
+
 def find_valid_invite(code: str) -> AdminInvite | None:
-    """Find and verify an unused invite without storing plaintext codes."""
+    """Find and verify an unused, unexpired invite without storing plaintext codes."""
     normalized = normalize_invite_code(code)
     if not normalized:
         return None
 
+    now = datetime.utcnow()
     lookup = invite_code_lookup(normalized)
-    invite = AdminInvite.query.filter_by(code_lookup=lookup, used_at=None).first()
+    invite = (
+        AdminInvite.query
+        .filter_by(code_lookup=lookup, used_at=None)
+        .filter(AdminInvite.expires_at > now)
+        .first()
+    )
     if invite and verify_invite_code(invite, normalized):
         return invite
 
     # Backward-compatible path for pre-migration plaintext invite rows.
-    legacy_invite = AdminInvite.query.filter_by(code=normalized, used_at=None).first()
+    legacy_invite = (
+        AdminInvite.query
+        .filter_by(code=normalized, used_at=None)
+        .filter(AdminInvite.expires_at > now)
+        .first()
+    )
     if legacy_invite and verify_invite_code(legacy_invite, normalized):
         legacy_invite.code_hash = hash_invite_code(normalized)
         legacy_invite.code_lookup = lookup
@@ -1190,6 +1208,7 @@ def find_valid_invite(code: str) -> AdminInvite | None:
     hashed_invites = (
         AdminInvite.query
         .filter(AdminInvite.used_at.is_(None))
+        .filter(AdminInvite.expires_at > now)
         .filter(AdminInvite.code_hash.isnot(None))
         .all()
     )
@@ -1200,6 +1219,26 @@ def find_valid_invite(code: str) -> AdminInvite | None:
                 candidate.code = invite_reference(candidate.id)
             return candidate
     return None
+
+
+def claim_invite(invite_id: int, claimed_at: datetime | None = None) -> bool:
+    """Atomically mark one still-valid invite as used within the caller's transaction."""
+    now = claimed_at or datetime.utcnow()
+    claimed = (
+        AdminInvite.query
+        .filter(
+            AdminInvite.id == invite_id,
+            AdminInvite.used_at.is_(None),
+            AdminInvite.expires_at > now,
+        )
+        .update({AdminInvite.used_at: now}, synchronize_session=False)
+    )
+    return claimed == 1
+
+
+def apply_security_remediation_migration() -> None:
+    """Apply the versioned Goal 2 schema migration."""
+    upgrade_security_remediation_20260719(db.engine)
 
 
 def is_postgres():
@@ -1345,6 +1384,7 @@ def initialize_app(*, sync_csv: bool = True):
         print("[init] tables ensured")
         print("[init] checking schema...")
         ensure_admin_email_column()
+        apply_security_remediation_migration()
         migrate_plaintext_invite_codes()
         ensure_default_admin()
         ensure_advance_admin_exists()
@@ -1725,6 +1765,7 @@ def ensure_schema_migrations():
                 ensure_pg_search_indexes()
                 ensure_event_date_columns()
                 ensure_admin_email_column()
+                apply_security_remediation_migration()
                 migrate_plaintext_invite_codes()
                 ensure_advance_admin_exists()
                 inspector = db.inspect(db.engine)

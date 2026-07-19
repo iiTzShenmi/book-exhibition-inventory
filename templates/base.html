@@ -66,7 +66,7 @@
 
     <main class="page-content">
       {% if request.endpoint in ['inventory.home', 'api.search'] %}
-      <section class="hero hero--single" id="search-section">
+      <section class="hero hero--single" id="search-section" data-search-workspace>
         <div class="hero__text">
           <p class="eyebrow hero-brand">
             <span class="brand__mark brand__mark--logo" aria-hidden="true">
@@ -83,22 +83,33 @@
             <a class="hero-brand__home" href="{{ url_for('inventory.home') }}" aria-label="回到首頁">返回首頁</a>
           </p>
           <div class="hero__search-row">
-            <form action="{{ url_for('api.search') }}" method="get" class="customer-search">
+            <form action="{{ url_for('api.search') }}" method="get" class="customer-search" data-search-form>
               <div class="search-box" {% if request.endpoint == 'inventory.home' %}data-search-intro="true"{% endif %}>
-                <input class="search-box__input" type="text" name="q" placeholder="搜尋書名、作者或關鍵字..." value="{{ request.args.get('q', '') }}" />
-                <button class="btn btn--primary" type="submit">搜尋</button>
-                <button type="button" class="btn btn--ghost btn--sm" data-ui-action="toggle-advanced">進階篩選</button>
+                <label class="sr-only" for="search-query">搜尋書籍</label>
+                <input id="search-query" class="search-box__input" type="search" name="q" placeholder="搜尋書名、作者或關鍵字..." value="{{ request.args.get('q', '') }}" autocomplete="off" aria-describedby="search-status" />
+                <button class="btn btn--primary" type="submit" data-idle-label="搜尋">搜尋</button>
+                <button type="button" class="btn btn--ghost btn--sm" data-ui-action="toggle-advanced" aria-controls="advanced-panel" aria-expanded="{{ 'true' if request.endpoint == 'api.search' else 'false' }}">進階篩選</button>
+                {% if request.endpoint == 'api.search' %}
+                <a class="btn btn--ghost btn--sm" href="{{ url_for('inventory.home') }}">清除搜尋</a>
+                {% endif %}
               </div>
-              <div id="advanced-panel" class="advanced-panel u-hidden">
+              <p id="search-status" class="sr-only" aria-live="polite">可搜尋書名、作者或關鍵字。</p>
+              <div id="advanced-panel" class="advanced-panel{% if request.endpoint == 'inventory.home' %} u-hidden{% else %} is-open{% endif %}"{% if request.endpoint == 'inventory.home' %} hidden{% endif %}>
                 <div class="filter-grid">
-                  <div class="field">
-                    <label>📍 櫃位</label>
-                    <select name="cabinet" id="cabinet">
-                      <option value="">全部櫃位</option>
-                      {% for cab in all_cabinets or [] %}
-                      <option value="{{ cab.name }}" {% if request.args.get('cabinet') == cab.name %}selected{% endif %}>{{ cab.name }}</option>
+                  <div class="field location-picker" data-location-picker>
+                    <label for="cabinet-filter">📍 櫃位</label>
+                    <input type="hidden" name="cabinet" value="{{ request.args.get('cabinet', '') }}" data-location-value>
+                    <input id="cabinet-filter" type="search" value="{{ request.args.get('cabinet', '') }}" placeholder="輸入櫃位名稱篩選" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="cabinet-options" aria-expanded="false" data-location-input>
+                    <div id="cabinet-options" class="location-picker__options" role="listbox" hidden data-location-options>
+                      <button type="button" class="location-picker__option" role="option" aria-selected="{{ 'true' if not request.args.get('cabinet') else 'false' }}" data-location-option data-value="">全部櫃位</button>
+                      {% for cabinet_type, cabinets in (all_cabinets or []) | groupby('type') %}
+                      <p class="location-picker__group" aria-hidden="true">{{ cabinet_type or '其他櫃位' }}</p>
+                      {% for cab in cabinets %}
+                      <button type="button" class="location-picker__option" role="option" aria-selected="{{ 'true' if request.args.get('cabinet') == cab.name else 'false' }}" data-location-option data-value="{{ cab.name }}">{{ cab.name }}</button>
                       {% endfor %}
-                    </select>
+                      {% endfor %}
+                      <p class="location-picker__empty" hidden data-location-empty>找不到相符的櫃位。</p>
+                    </div>
                   </div>
                   <div class="field">
                     <label>📦 庫存狀態</label>
@@ -121,58 +132,6 @@
         </div>
       </section>
 
-      <div id="venue-map-modal" class="modal-overlay u-hidden" data-active-cabinets='{% if all_cabinets is defined %}{{ all_cabinets | tojson | safe }}{% else %}[]{% endif %}'>
-        <div class="modal-box large venue-map-box">
-          <div class="booth-map-header">
-            <div>
-              <p class="eyebrow">現場快速導覽</p>
-              <h3>展場地圖</h3>
-            </div>
-            <button type="button" class="btn btn--secondary" id="venue-map-close">關閉</button>
-          </div>
-          <div class="venue-map-body">
-            <div class="venue-map-canvas" aria-label="展場平面圖">
-              <img src="{{ url_for('static', filename='images/floor_plan_placeholder.png') }}" alt="展場平面圖" class="venue-map-image" />
-              <div class="venue-map-pins" id="venue-map-pins" aria-hidden="true"></div>
-            </div>
-            <div class="venue-map-panel">
-              <p class="eyebrow">Active Zones</p>
-              <h4>櫃位分區</h4>
-              <div id="venue-map-zones" class="venue-map-zones"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div id="realtime-overlay" class="modal-overlay u-hidden">
-        <div class="modal-box medium realtime-modal">
-          <div class="booth-map-header">
-            <div>
-              <p class="eyebrow">即時庫存</p>
-              <h3>⚡ 現場補貨監控</h3>
-            </div>
-            <button type="button" class="btn btn--secondary" id="realtime-close">關閉</button>
-          </div>
-          <div class="realtime-modal-body">
-            <div class="pixel-scene">
-              <div class="shelf shelf--reserve">備書櫃</div>
-              <div class="shelf shelf--display">展示櫃</div>
-              <div id="worker" class="pixel-worker sleeping">
-                <div class="sprite"></div>
-                <div class="bubble">Zzz...</div>
-              </div>
-            </div>
-            <div class="realtime-list-card">
-              <div class="card__header">
-                <span class="chip chip--soft">需要補貨</span>
-                <h3>待處理清單</h3>
-              </div>
-              <div id="realtime-status" class="muted">載入中...</div>
-              <ul id="realtime-alerts" class="realtime-list"></ul>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div id="event-books-overlay" class="modal-overlay u-hidden">
         <div class="modal-box medium cover-modal-box event-books-modal">
           <button type="button" class="modal-close" data-close-event-books>&times;</button>
@@ -189,23 +148,6 @@
       <div id="book-modal-overlay" class="modal-overlay u-hidden">
         <div id="book-modal-box" class="modal-box medium"></div>
       </div>
-
-      {% if request.endpoint == 'inventory.home' %}
-      <div id="announcement-overlay" class="modal-overlay u-hidden">
-        <div class="modal-box medium announcement-modal">
-          <button type="button" class="modal-close" data-close-announcement>&times;</button>
-          <div class="modal-header">
-            <p class="eyebrow">使用提醒</p>
-            <h2>📌 查詢須知</h2>
-          </div>
-          <ul class="announcement-list">
-            <li>此頁面僅供<strong class="announcement-em">查詢</strong>使用，<strong class="announcement-em">無購買</strong>功能。</li>
-            <li>資料可能有誤差，請以<strong class="announcement-em">現場庫存</strong>為準。</li>
-          </ul>
-          <div class="announcement-sign">— iiTzShenmi</div>
-        </div>
-      </div>
-      {% endif %}
 
       <div id="about-overlay" class="modal-overlay u-hidden">
         <div class="modal-box small about-modal">
@@ -258,6 +200,9 @@
       {% endif %}
           {% block content %}{% endblock %}
       {% if request.blueprint != 'admin' and request.endpoint == 'inventory.home' and has_public_events %}
+      <details class="public-secondary" id="public-secondary-content">
+        <summary>展場資訊與精選</summary>
+        <div class="public-secondary__content">
       <section class="info-hub" id="events-section">
         <div class="section-head">
           <p class="eyebrow">Highlights</p>
@@ -279,7 +224,7 @@
                           <li><span class="event-label">地點</span>舞台區域</li>
                         </ul>
                         <button type="button" class="btn btn--secondary btn--sm event-books-toggle">顯示書籍封面</button>
-                        <a class="btn btn--primary" href="#top-sell">查看相關書籍</a>
+                        <button type="button" class="btn btn--primary" data-open-details="public-secondary-catalogue">查看相關書籍</button>
                       </div>
                       <div class="event-banner__visuals">
                         <div class="book-showcase-grid"></div>
@@ -291,7 +236,9 @@
               <div class="event-dots" id="event-dots" aria-label="活動切換"></div>
             </div>
           </section>
-          {% endif %}
+        </div>
+      </details>
+      {% endif %}
       {% if request.blueprint == 'admin' %}
         </div>
       </div>
@@ -300,6 +247,9 @@
       {% endif %}
       
       {% if show_top_sellers %}
+      <details class="public-secondary public-secondary--catalogue" id="public-secondary-catalogue" open>
+        <summary>熱門與精選書單</summary>
+        <div class="public-secondary__content">
       <section class="top-sell" id="top-sell">
         <div class="section-head">
           <p class="eyebrow">Trending Now</p>
@@ -363,7 +313,7 @@
               <p class="tiny-text muted">*特價品除外</p>
             </div>
           </div>
-          <a class="info-card info-card--compact discount-ticket discount-ticket--line" href="https://line.naver.jp/ti/p/aGRrzskyQD" target="_blank" rel="noopener">
+          <a class="info-card info-card--compact discount-ticket discount-ticket--line" href="https://line.naver.jp/ti/p/aGRrzskyQD" target="_blank" rel="noopener noreferrer">
             <div class="ticket-left">
               <div class="ticket-icon">LINE</div>
               <div class="ticket-main">
@@ -405,6 +355,8 @@
           </div>
         </div>
       </section>
+        </div>
+      </details>
       {% endif %}
     </main>
 
@@ -460,31 +412,15 @@
 
       <div class="footer-bottom">
         <span>&copy; 2026 EXIS — EXhibition Inventory System. 版權所有。</span>
-        <button type="button" class="footer-meta footer-status-btn" id="footer-status-btn">
-          <span class="status-dot status-dot--warning"></span> 部分功能停用中
-        </button>
+        <span class="footer-meta">庫存資料請以現場為準</span>
       </div>
     </footer>
 
-    <div class="modal-overlay u-hidden" id="status-modal" data-footer-modal>
-      <div class="modal-box small footer-modal">
-        <button type="button" class="modal-close" data-close-modal>&times;</button>
-        <div class="modal-header">
-          <h3>停用功能清單</h3>
-        </div>
-        <div class="modal-body">
-          <ul class="footer-status-list">
-            <li>現場快速導覽（導覽地圖）</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-
     <div class="modal-overlay u-hidden" id="doc-modal" data-footer-modal>
-      <div class="modal-box medium footer-modal">
+      <div class="modal-box medium footer-modal" role="dialog" aria-modal="true" aria-labelledby="doc-modal-title">
         <button type="button" class="modal-close" data-close-modal>&times;</button>
         <div class="modal-header">
-          <h3>專案文件</h3>
+          <h3 id="doc-modal-title">專案文件</h3>
         </div>
         <div class="modal-body">
           <p class="muted">© 2026 EXIS 專案. 版權所有。</p>
@@ -495,17 +431,20 @@
     </div>
 
     <div class="modal-overlay u-hidden" id="issue-modal" data-footer-modal>
-      <div class="modal-box medium footer-modal">
+      <div class="modal-box medium footer-modal" role="dialog" aria-modal="true" aria-labelledby="issue-modal-title">
         <button type="button" class="modal-close" data-close-modal>&times;</button>
         <div class="modal-header">
-          <h3>回報問題</h3>
+          <h3 id="issue-modal-title">回報問題</h3>
         </div>
         <div class="modal-body">
-          <p class="muted">送出後會建立一筆系統紀錄，工作人員可在操作紀錄中追蹤。</p>
+          <p id="issue-help" class="muted">請描述可重現的情況。送出後會建立一筆問題回報，工作人員會處理。</p>
           <form class="modal-form" data-issue-form>
+            <div class="u-hidden" aria-hidden="true">
+              <label>網站<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+            </div>
             <label class="field">
               <span>姓名</span>
-              <input type="text" name="name" required>
+              <input type="text" name="name" maxlength="80" autocomplete="name" required aria-describedby="issue-help">
             </label>
             <label class="field">
               <span>問題類型</span>
@@ -519,11 +458,12 @@
             </label>
             <label class="field">
               <span>問題描述</span>
-              <textarea name="description" rows="4" required></textarea>
+              <textarea name="description" rows="4" maxlength="1200" required aria-describedby="issue-help issue-counter" data-issue-description></textarea>
             </label>
-            <p class="muted u-m-0" data-issue-status aria-live="polite"></p>
+            <p id="issue-counter" class="field-hint" data-issue-counter>0 / 1200</p>
+            <p class="muted u-m-0" data-issue-status aria-live="polite" role="status"></p>
             <div class="actions">
-              <button type="submit" class="btn btn--primary">送出</button>
+              <button type="submit" class="btn btn--primary" data-idle-label="送出">送出</button>
               <button type="button" class="btn btn--secondary" data-close-modal>取消</button>
             </div>
           </form>
@@ -532,10 +472,10 @@
     </div>
 
     <div class="modal-overlay u-hidden" id="dev-modal" data-footer-modal>
-      <div class="modal-box medium footer-modal">
+      <div class="modal-box medium footer-modal" role="dialog" aria-modal="true" aria-labelledby="dev-modal-title">
         <button type="button" class="modal-close" data-close-modal>&times;</button>
         <div class="modal-header">
-          <h3>開發團隊</h3>
+          <h3 id="dev-modal-title">開發團隊</h3>
         </div>
         <div class="modal-body">
           <ul class="dev-list">

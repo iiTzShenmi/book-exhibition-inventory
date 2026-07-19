@@ -462,15 +462,24 @@ def add_book():
         except Exception:
             title_obj.topics = topics_raw
 
-    existing = active_books_query().filter_by(title_id=title_obj.id, cabinet_id=cabinet_id).first()
+    # The database keeps archived records to retain history. Reuse that unique
+    # row instead of inserting a conflicting duplicate when a book is re-added.
+    existing = Book.query.filter_by(title_id=title_obj.id, cabinet_id=cabinet_id).first()
 
     try:
         if existing:
-            log_action("restock_book", target=title_obj.title, details=f"cabinet_id={cabinet_id} (quantity tracking removed)")
+            restored = existing.status != "active"
+            if restored:
+                existing.status = "active"
+                existing.deleted_at = None
+                existing.in_stock = True
+                log_action("restore_book", target=title_obj.title, details=f"cabinet_id={cabinet_id}")
+            else:
+                log_action("restock_book", target=title_obj.title, details=f"cabinet_id={cabinet_id} (quantity tracking removed)")
             db.session.commit()
             return jsonify({
                 "success": True,
-                "message": "已補貨",
+                "message": "已恢復書籍" if restored else "已補貨",
                 "book_id": existing.id,
                 "cabinet_id": cabinet_id,
                 "title": title_obj.title,

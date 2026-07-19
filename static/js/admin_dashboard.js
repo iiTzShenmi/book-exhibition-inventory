@@ -28,6 +28,35 @@
   let currentCabinetBooksId = null;
   let pendingMove = null;
 
+  function setPending(button, isPending, pendingLabel) {
+    if (!button) return;
+    if (!button.dataset.idleLabel) button.dataset.idleLabel = button.textContent.trim();
+    button.disabled = isPending;
+    button.textContent = isPending ? pendingLabel : button.dataset.idleLabel;
+  }
+
+  const modalReturnFocus = new Map();
+
+  function openAdminModal(overlay, focusTarget = null) {
+    if (!overlay) return;
+    modalReturnFocus.set(overlay.id, document.activeElement);
+    overlay.style.display = 'flex';
+    overlay.setAttribute('aria-hidden', 'false');
+    window.requestAnimationFrame(() => {
+      const target = focusTarget || overlay.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      target?.focus();
+    });
+  }
+
+  function closeAdminModal(overlay) {
+    if (!overlay || overlay.style.display !== 'flex') return;
+    overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
+    const returnFocus = modalReturnFocus.get(overlay.id);
+    modalReturnFocus.delete(overlay.id);
+    if (returnFocus instanceof HTMLElement && document.contains(returnFocus)) returnFocus.focus();
+  }
+
   const refreshNotificationsIfAvailable = () => {
     if (typeof window.refreshNotifications === 'function') {
       window.refreshNotifications();
@@ -141,12 +170,12 @@
         currentCabinetNames = collectCabinetNamesForTitle(title);
         updateCabinetSelect();
       });
-    if (overlay) overlay.style.display = 'flex';
+    openAdminModal(overlay, document.getElementById('cabinet-select'));
   }
 
   function closeCabinetModal() {
     const overlay = document.getElementById('cabinet-modal-overlay');
-    if (overlay) overlay.style.display = 'none';
+    closeAdminModal(overlay);
     currentTitle = null;
     currentCabinetNames = [];
   }
@@ -335,7 +364,7 @@ async function toggleCabinetType(id) {
   function closeCabinetBooksModal() {
     const overlay = document.getElementById('cabinet-books-overlay');
     if (!overlay) return;
-    overlay.style.display = 'none';
+    closeAdminModal(overlay);
     overlay.removeAttribute('data-cabinet-id');
     currentCabinetBooksId = null;
   }
@@ -400,7 +429,7 @@ async function toggleCabinetType(id) {
         removeBtn.type = 'button';
         removeBtn.className = 'btn btn--danger btn--sm';
         removeBtn.dataset.bookAction = 'remove';
-        removeBtn.textContent = '移出本櫃';
+        removeBtn.textContent = '封存紀錄';
 
         actions.appendChild(toggleBtn);
         actions.appendChild(moveBtn);
@@ -421,11 +450,12 @@ async function toggleCabinetType(id) {
     currentCabinetBooksId = id;
     const overlay = document.getElementById('cabinet-books-overlay');
     if (!overlay) return;
-    overlay.style.display = 'flex';
+    openAdminModal(overlay);
     loadCabinetBooks(id);
   }
 
-  async function toggleCabinetBook(cabinetId, bookId, title) {
+  async function toggleCabinetBook(cabinetId, bookId, title, button = null) {
+    setPending(button, true, '更新中...');
     try {
       const res = await fetch(`/cabinets/${cabinetId}/books/${bookId}/toggle`, {
         method: 'PATCH',
@@ -445,12 +475,15 @@ async function toggleCabinetType(id) {
     } catch (err) {
       console.error(err);
       showToast('更新失敗', false);
+    } finally {
+      setPending(button, false);
     }
   }
 
-  async function removeCabinetBook(cabinetId, bookId, title) {
+  async function removeCabinetBook(cabinetId, bookId, title, button = null) {
     const bookName = title || '未命名';
-    if (!window.confirm(`確定將「${bookName}」移出此櫃位？`)) return;
+    if (!window.confirm(`確定封存「${bookName}」在此櫃位的庫存紀錄？公開查詢將不再顯示這筆紀錄。`)) return;
+    setPending(button, true, '封存中...');
     try {
       const res = await fetch(`/cabinets/${cabinetId}/books/${bookId}`, {
         method: 'DELETE',
@@ -477,14 +510,16 @@ async function toggleCabinetType(id) {
         await loadCabinetBooks(cabinetId);
         await refreshBookCardsForTitles(data.affected_titles || [data.title]);
       };
-      showToast('書籍已移出本櫃', true, undo);
+      showToast('書籍已從此櫃位封存', true, undo);
       refreshNotificationsIfAvailable();
       await loadCabinets();
       await loadCabinetBooks(cabinetId);
       await refreshBookCardsForTitles(data.affected_titles);
     } catch (err) {
       console.error(err);
-      showToast('移除失敗', false);
+      showToast('封存失敗', false);
+    } finally {
+      setPending(button, false);
     }
   }
 
@@ -523,7 +558,9 @@ async function toggleCabinetType(id) {
     const titleEl = document.getElementById('move-book-title');
     const bookIdInput = document.getElementById('move-book-id');
     const sourceInput = document.getElementById('move-source-cabinet-id');
-    if (!overlay || !form || !titleEl || !bookIdInput || !sourceInput) return;
+    const sourceEl = document.getElementById('move-book-source');
+    const statusEl = document.getElementById('move-book-status');
+    if (!overlay || !form || !titleEl || !bookIdInput || !sourceInput || !sourceEl) return;
 
     if (!cabinetCache.length) loadCabinets();
 
@@ -531,12 +568,15 @@ async function toggleCabinetType(id) {
     titleEl.textContent = title;
     bookIdInput.value = String(bookId);
     sourceInput.value = String(cabinetId);
+    const source = cabinetCache.find((cabinet) => cabinet.id === cabinetId);
+    sourceEl.textContent = source
+      ? `${source.name}（${source.type === 'display' ? '展示櫃' : '備書櫃'}）`
+      : `櫃位 #${cabinetId}`;
+    if (statusEl) statusEl.textContent = '';
 
     const availableCount = populateMoveTargets(cabinetId);
-    overlay.style.display = 'flex';
-
     const select = document.getElementById('move-book-target');
-    if (select && !select.disabled) select.focus();
+    openAdminModal(overlay, select && !select.disabled ? select : null);
 
     if (!availableCount) {
       showToast('尚未建立其他櫃位，可先於櫃位資訊新增。', false);
@@ -545,7 +585,7 @@ async function toggleCabinetType(id) {
 
   function closeMoveBookModal() {
     const overlay = document.getElementById('move-book-overlay');
-    if (overlay) overlay.style.display = 'none';
+    closeAdminModal(overlay);
     const form = document.getElementById('move-book-form');
     if (form) form.reset();
     pendingMove = null;
@@ -556,6 +596,8 @@ async function toggleCabinetType(id) {
     const targetSelect = document.getElementById('move-book-target');
     const bookInput = document.getElementById('move-book-id');
     const sourceInput = document.getElementById('move-source-cabinet-id');
+    const statusEl = document.getElementById('move-book-status');
+    const submitBtn = event.currentTarget.querySelector('button[type="submit"]');
     if (!targetSelect || !bookInput || !sourceInput) return;
 
     const targetId = Number(targetSelect.value);
@@ -567,8 +609,13 @@ async function toggleCabinetType(id) {
     return;
   }
 
-  const movingTitle = pendingMove?.title || '';
-    if (!window.confirm(`確定將「${movingTitle}」移動到所選櫃位？`)) return;
+    const movingTitle = pendingMove?.title || '';
+    const sourceName = document.getElementById('move-book-source')?.textContent || `櫃位 #${sourceId}`;
+    const targetName = targetSelect.options[targetSelect.selectedIndex]?.textContent || '所選櫃位';
+    if (!window.confirm(`確認將「${movingTitle}」從「${sourceName}」移動到「${targetName}」？`)) return;
+
+    if (statusEl) statusEl.textContent = '移動中...';
+    setPending(submitBtn, true, '移動中...');
 
     try {
       const res = await fetch(`/cabinets/${sourceId}/books/${bookId}/move`, {
@@ -582,6 +629,7 @@ async function toggleCabinetType(id) {
       const data = await res.json();
       if (!res.ok || !data.success) {
         showToast(data.message || '移動失敗', false);
+        if (statusEl) statusEl.textContent = data.message || '移動失敗，請重新確認來源與目標櫃位。';
         return;
       }
 
@@ -604,6 +652,7 @@ async function toggleCabinetType(id) {
           }
         : null;
       showToast(label, true, undo);
+      if (statusEl) statusEl.textContent = label;
       refreshNotificationsIfAvailable();
 
       closeMoveBookModal();
@@ -613,6 +662,9 @@ async function toggleCabinetType(id) {
     } catch (err) {
       console.error(err);
       showToast('移動失敗', false);
+      if (statusEl) statusEl.textContent = '移動失敗，請確認網路連線後再試。';
+    } finally {
+      setPending(submitBtn, false);
     }
   }
 
@@ -629,24 +681,24 @@ async function toggleCabinetType(id) {
     const title = row.dataset.bookTitle || '未命名';
     const action = button.dataset.bookAction;
     if (action === 'toggle') {
-      toggleCabinetBook(cabinetId, bookId, title);
+      toggleCabinetBook(cabinetId, bookId, title, button);
     } else if (action === 'move') {
       openMoveBookModal(cabinetId, bookId, title);
     } else if (action === 'remove') {
-      removeCabinetBook(cabinetId, bookId, title);
+      removeCabinetBook(cabinetId, bookId, title, button);
     }
   }
 
   function openCabinetManager() {
     const overlay = document.getElementById('cabinet-manager-overlay');
     if (!overlay) return;
-    overlay.style.display = 'flex';
+    openAdminModal(overlay);
     loadCabinets();
   }
 
   function closeCabinetManager() {
     const overlay = document.getElementById('cabinet-manager-overlay');
-    if (overlay) overlay.style.display = 'none';
+    closeAdminModal(overlay);
   }
 
   function openCabinetActionModal(mode, cabinet) {
@@ -742,7 +794,7 @@ async function toggleCabinetType(id) {
       return;
     }
 
-    overlay.style.display = 'flex';
+    openAdminModal(overlay);
 
     const closeButtons = box.querySelectorAll('[data-close-action]');
     closeButtons.forEach(btn => btn.addEventListener('click', closeCabinetActionModal));
@@ -782,7 +834,7 @@ async function toggleCabinetType(id) {
 
   function closeCabinetActionModal() {
     const overlay = document.getElementById('cabinet-action-overlay');
-    if (overlay) overlay.style.display = 'none';
+    closeAdminModal(overlay);
   }
 
   function handleCabinetAction(action, cabinet) {
@@ -815,15 +867,14 @@ async function toggleCabinetType(id) {
     const overlay = document.getElementById('add-book-overlay');
     const input = document.getElementById('add-book-title');
     if (!overlay || !input) return;
-    overlay.style.display = 'flex';
     input.value = prefillTitle || '';
-    input.focus();
+    openAdminModal(overlay, input);
   }
 
   function closeAddBookModal() {
     const overlay = document.getElementById('add-book-overlay');
     const form = document.getElementById('add-book-form');
-    if (overlay) overlay.style.display = 'none';
+    closeAdminModal(overlay);
     if (form) form.reset();
   }
 
@@ -844,76 +895,83 @@ async function toggleCabinetType(id) {
   function bindCabinetForm() {
     const cabinetForm = document.getElementById('cabinet-form');
     if (!cabinetForm) return;
-    cabinetForm.addEventListener('submit', function (e) {
+    cabinetForm.addEventListener('submit', async function (e) {
       e.preventDefault();
       const title = currentTitle || '';
-      if (!window.confirm(`要變更《${title}》的櫃位嗎？`)) return;
       const action = document.getElementById('cabinet-action')?.value || 'add';
       const cabSelect = document.getElementById('cabinet-select');
       const cabName = cabSelect?.value?.trim();
+      const status = document.getElementById('cabinet-form-status');
+      const actionLabel = action === 'remove' ? '封存此櫃位的庫存紀錄' : '新增至櫃位';
+      if (!window.confirm(`確認要${actionLabel}《${title}》嗎？`)) return;
       if (action === 'add' && cabName && currentCabinetNames.includes(cabName)) {
         const notice = document.getElementById('cabinet-exists-notice');
         if (notice) notice.style.display = 'block';
+        if (status) status.textContent = `《${title}》已存在於「${cabName}」。`;
         showToast(`《${title}》已存在於「${cabName}」`, false);
         return;
       }
       const data = new FormData(this);
-      fetch(this.action, {
-        method: 'POST',
-        body: data,
-        headers: headersWithCsrf(),
-      })
-        .then(async r => {
-          try {
-            const res = await r.json();
-            let undo = null;
-            if (res.success && res.action === 'add') {
-              undo = async () => {
-                const fd = new FormData();
-                fd.append('csrf_token', getFreshCsrfToken());
-                fd.append('add_or_remove', 'remove');
-                fd.append('cabinet', res.cabinet_name);
-                await fetch(`/modify_cabinet/${encodeURIComponent(res.title)}`, {
-                  method: 'POST',
-                  body: fd,
-                  headers: headersWithCsrf(),
-                });
-                await refreshBookCard(res.title);
-                await loadCabinets();
-              };
-            } else if (res.success && res.action === 'remove') {
-              const qty = Math.max(Number(res.qty_removed) || 1, 1);
-              undo = async () => {
-                const fd = new FormData();
-                fd.append('csrf_token', getFreshCsrfToken());
-                fd.append('title', res.title);
-                fd.append('cabinet_id', res.cabinet_id);
-                fd.append('amount', qty);
-                await fetch('/add_book', {
-                  method: 'POST',
-                  body: fd,
-                  headers: headersWithCsrf(),
-                });
-                await refreshBookCard(res.title);
-                await loadCabinets();
-              };
-            }
-            showToast(res.message, res.success, undo);
-            if (res.success) {
-              if (currentTitle) await refreshBookCard(currentTitle);
-              closeCabinetModal();
-              await loadCabinets();
-              await refreshBookCardsForTitles([title]);
-              if (typeof refreshDashboardPage === 'function') {
-                refreshDashboardPage();
-              }
-            }
-          } catch (err) {
-            console.warn('Unexpected response:', r);
-            showToast('無法解析伺服器回應', false);
+      const submitBtn = this.querySelector('button[type="submit"]');
+      if (status) status.textContent = action === 'remove' ? '封存中...' : '更新中...';
+      setPending(submitBtn, true, action === 'remove' ? '封存中...' : '新增中...');
+      try {
+        const response = await fetch(this.action, {
+          method: 'POST',
+          body: data,
+          headers: headersWithCsrf(),
+        });
+        const res = await response.json();
+        let undo = null;
+        if (res.success && res.action === 'add') {
+          undo = async () => {
+            const fd = new FormData();
+            fd.append('csrf_token', getFreshCsrfToken());
+            fd.append('add_or_remove', 'remove');
+            fd.append('cabinet', res.cabinet_name);
+            await fetch(`/modify_cabinet/${encodeURIComponent(res.title)}`, {
+              method: 'POST',
+              body: fd,
+              headers: headersWithCsrf(),
+            });
+            await refreshBookCard(res.title);
+            await loadCabinets();
+          };
+        } else if (res.success && res.action === 'remove') {
+          const qty = Math.max(Number(res.qty_removed) || 1, 1);
+          undo = async () => {
+            const fd = new FormData();
+            fd.append('csrf_token', getFreshCsrfToken());
+            fd.append('title', res.title);
+            fd.append('cabinet_id', res.cabinet_id);
+            fd.append('amount', qty);
+            await fetch('/add_book', {
+              method: 'POST',
+              body: fd,
+              headers: headersWithCsrf(),
+            });
+            await refreshBookCard(res.title);
+            await loadCabinets();
+          };
+        }
+        if (status) status.textContent = res.message || (res.success ? '操作完成。' : '操作失敗，請重試。');
+        showToast(res.message, res.success, undo);
+        if (res.success) {
+          if (currentTitle) await refreshBookCard(currentTitle);
+          closeCabinetModal();
+          await loadCabinets();
+          await refreshBookCardsForTitles([title]);
+          if (typeof refreshDashboardPage === 'function') {
+            refreshDashboardPage();
           }
-        })
-        .catch(() => showToast('操作失敗', false));
+        }
+      } catch (err) {
+        console.warn('Cabinet update failed:', err);
+        if (status) status.textContent = '操作失敗，請確認網路連線後再試。';
+        showToast('操作失敗', false);
+      } finally {
+        setPending(submitBtn, false);
+      }
     });
   }
 
@@ -1032,6 +1090,11 @@ async function toggleCabinetType(id) {
   function bindKeyboardShortcuts() {
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape') {
+        const previewOverlay = document.getElementById('add-book-preview-overlay');
+        if (previewOverlay?.style.display === 'flex') {
+          closeAdminModal(previewOverlay);
+          return;
+        }
         closeAddBookModal();
         closeCabinetBooksModal();
         closeCabinetManager();
@@ -1056,9 +1119,10 @@ async function toggleCabinetType(id) {
     const previewClose = document.getElementById('add-book-preview-close');
     const previewCancel = document.getElementById('add-book-preview-cancel');
     const previewConfirm = document.getElementById('add-book-preview-confirm');
+    const addBookStatus = document.getElementById('add-book-status');
 
     const closePreview = () => {
-      if (previewOverlay) previewOverlay.style.display = 'none';
+      closeAdminModal(previewOverlay);
     };
 
     const openPreview = (data, formData) => {
@@ -1104,7 +1168,7 @@ async function toggleCabinetType(id) {
           previewWarnings.appendChild(warn);
         }
       }
-      previewOverlay.style.display = 'flex';
+      previewConfirm?.focus();
     };
 
     const submitAddBook = async () => {
@@ -1114,6 +1178,7 @@ async function toggleCabinetType(id) {
       submitData.append('author', data.author || '');
       submitData.append('cover_url', isAllowedCoverUrl(data.cover_url) ? data.cover_url : '');
       submitData.append('topics', JSON.stringify(data.topics || []));
+      setPending(previewConfirm, true, '新增中...');
       try {
         const res = await fetch(addBookForm.action || '/add_book', {
           method: 'POST',
@@ -1148,6 +1213,8 @@ async function toggleCabinetType(id) {
       } catch (err) {
         console.error(err);
         showToast('網路錯誤', false);
+      } finally {
+        setPending(previewConfirm, false);
       }
     };
     if (addBookForm) {
@@ -1157,11 +1224,15 @@ async function toggleCabinetType(id) {
         const bookTitle = fd.get('title') || '';
         const cabId = fd.get('cabinet_id');
         if (!bookTitle || !cabId) {
+          if (addBookStatus) addBookStatus.textContent = '請輸入書名並選擇櫃位。';
           showToast('請輸入書名並選擇櫃位', false);
           return;
         }
+        const submitBtn = addBookForm.querySelector('button[type="submit"]');
+        if (addBookStatus) addBookStatus.textContent = '正在取得確認資訊...';
+        setPending(submitBtn, true, '讀取中...');
         try {
-          if (previewOverlay) previewOverlay.style.display = 'flex';
+          openAdminModal(previewOverlay);
           if (previewLoading) previewLoading.style.display = 'flex';
           if (previewBox) previewBox.classList.add('is-loading');
           const res = await fetch('/admin/add_book_preview', {
@@ -1171,15 +1242,20 @@ async function toggleCabinetType(id) {
           });
           const data = await res.json();
           if (!res.ok || !data.success) {
+            if (addBookStatus) addBookStatus.textContent = data.message || '取得確認資訊失敗，請重試。';
             showToast(data.message || '取得預覽失敗', false);
-            if (previewOverlay) previewOverlay.style.display = 'none';
+            closeAdminModal(previewOverlay);
             return;
           }
+          if (addBookStatus) addBookStatus.textContent = '確認資訊已準備完成。';
           openPreview(data, addBookForm);
         } catch (err) {
           console.error(err);
+          if (addBookStatus) addBookStatus.textContent = '網路錯誤，請確認連線後再試。';
           showToast('網路錯誤', false);
-          if (previewOverlay) previewOverlay.style.display = 'none';
+          closeAdminModal(previewOverlay);
+        } finally {
+          setPending(submitBtn, false);
         }
       });
     }
@@ -1310,7 +1386,11 @@ async function toggleCabinetType(id) {
       const form = document.getElementById('admin-search-form');
       if (form) form.reset();
       const advanced = document.getElementById('advanced-panel');
-      if (advanced) advanced.style.display = 'none';
+      if (advanced) {
+        advanced.hidden = true;
+        advanced.classList.add('u-hidden');
+        advanced.classList.remove('is-open');
+      }
       window.location.href = '/admin';
     });
   }

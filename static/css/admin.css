@@ -403,7 +403,8 @@
 
 .admin-backup-card,
 .admin-upload-card,
-.admin-audit-card {
+.admin-audit-card,
+.admin-issue-report-card {
   margin: 0;
   height: 100%;
   width: 100%;
@@ -420,9 +421,15 @@
   height: auto;
 }
 
+.admin-system > .admin-audit-card {
+  height: auto;
+  align-self: start;
+}
+
 .admin-backup-card:hover,
 .admin-upload-card:hover,
-.admin-audit-card:hover {
+.admin-audit-card:hover,
+.admin-issue-report-card:hover {
   transform: none;
   box-shadow: var(--shadow-soft);
 }
@@ -1332,6 +1339,45 @@
   display: none;
 }
 
+.admin-audit-card .audit-body {
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-issue-report-card {
+  margin-top: 16px;
+}
+
+.issue-report-list {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+}
+
+.issue-report-item {
+  width: 100%;
+  border: 1px solid var(--border);
+  padding: 12px;
+  background: var(--surface-muted);
+}
+
+.issue-report-item p {
+  margin: 6px 0 0;
+}
+
+.issue-report-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.issue-report-item__description {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 768px) {
   .audit-table {
     border: none;
@@ -1369,6 +1415,25 @@
   .audit-table__row > span:nth-child(1)::before { content: "時間: "; color: var(--muted); font-size: 0.85em; }
   .audit-table__row > span:nth-child(2)::before { content: "操作: "; color: var(--muted); font-size: 0.85em; }
   .audit-table__row > span:nth-child(3)::before { content: "對象: "; color: var(--muted); font-size: 0.85em; }
+  .audit-table__row > span:nth-child(4)::before { content: "操作者: "; color: var(--muted); font-size: 0.85em; }
+  .audit-table__row > span:nth-child(5)::before { content: "細節: "; color: var(--muted); font-size: 0.85em; }
+
+  .system-audit-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .system-audit-header .section-head__actions {
+    width: 100%;
+  }
+
+  .system-audit-header .btn {
+    flex: 1 1 132px;
+  }
+
+  .audit-details {
+    overflow-wrap: anywhere;
+  }
 }
 .audit-details {
   display: flex;
@@ -2197,5 +2262,46 @@
   .search-actions .btn,
   .event-actions .btn {
     flex: 1 1 140px;
+  }
+}
+
+/* Goal 3: searchable cabinet filters and compact mutation feedback. */
+.is-admin .search-form-modern .advanced-panel.is-open {
+  display: block;
+}
+
+.is-admin .location-picker__options {
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+.is-admin .field-hint {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 0.84rem;
+}
+
+.is-admin .move-book-title {
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.13);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #1e293b;
+  font-weight: 800;
+}
+
+@media (max-width: 720px) {
+  .is-admin .modal-box {
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+
+  .is-admin .location-picker__options {
+    position: static;
+    margin-top: 6px;
+  }
+
+  .is-admin .move-book-form .actions .btn {
+    flex: 1 1 0;
   }
 }

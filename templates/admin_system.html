@@ -66,18 +66,18 @@
   </div>
 
   {% if can_view_sensitive %}
-  <div class="card admin-audit-card">
+  <div class="card admin-audit-card is-collapsed">
     <div class="card__header system-audit-header">
       <div>
         <span class="chip chip--soft">操作紀錄</span>
         <h3>最新 200 筆</h3>
       </div>
       <div class="section-head__actions">
-        <button type="button" class="btn btn--ghost btn--sm" id="audit-toggle" data-state="collapsed">展開</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="audit-toggle" data-state="collapsed" aria-controls="audit-body" aria-expanded="false">展開</button>
         <a class="btn btn--secondary btn--sm" href="{{ url_for('admin.export_audit_csv') }}">匯出 CSV</a>
       </div>
     </div>
-    <div class="audit-body is-collapsed" id="audit-body">
+    <div class="audit-body is-collapsed" id="audit-body" aria-hidden="true">
       {% if audit_logs %}
       <div class="audit-table">
         <div class="audit-table__head">
@@ -101,6 +101,32 @@
       <p class="muted">尚無稽核紀錄。</p>
       {% endif %}
     </div>
+  </div>
+  <div class="card admin-issue-report-card">
+    <div class="card__header">
+      <div>
+        <span class="chip chip--soft">公開回報</span>
+        <h3>公開問題回報</h3>
+      </div>
+    </div>
+    {% if issue_reports %}
+    <div class="issue-report-list">
+      {% for report in issue_reports %}
+      <article class="issue-report-item">
+        <div class="issue-report-item__meta">
+          <strong>{{ report.category }}</strong>
+          <span>{{ report.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          <span>{{ report.status }}</span>
+        </div>
+        <p><strong>{{ report.reporter_name }}</strong></p>
+        <p class="issue-report-item__description">{{ report.description }}</p>
+        {% if report.source_path %}<p class="muted">來源：{{ report.source_path }}</p>{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">尚無公開問題回報。</p>
+    {% endif %}
   </div>
   {% else %}
   <div class="card admin-audit-card">

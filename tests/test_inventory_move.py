@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 from app import app, db
@@ -195,3 +197,40 @@ def test_legacy_quantity_endpoints_reject_unsupported_changes(client):
     assert add_response.status_code == 400
     assert db.session.get(Inventory, book.id).status == "active"
     assert BookTitle.query.filter_by(title="Another title").first() is None
+
+
+def test_add_book_restores_archived_inventory_record(client):
+    cabinet = Cabinet(name="Restore cabinet", type="display")
+    title = BookTitle(title="Restore archived book")
+    admin = AdminUser(
+        username="restore-admin",
+        email="restore-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([cabinet, title, admin])
+    db.session.flush()
+    archived = Inventory(
+        title_id=title.id,
+        cabinet_id=cabinet.id,
+        status="archived",
+        in_stock=False,
+        deleted_at=datetime.utcnow(),
+    )
+    db.session.add(archived)
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.post(
+        "/add_book",
+        data={"title": title.title, "cabinet_id": cabinet.id, "amount": "1"},
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    db.session.expire_all()
+    restored = db.session.get(Inventory, archived.id)
+    assert response.status_code == 200
+    assert response.get_json()["created"] is False
+    assert restored.status == "active"
+    assert restored.in_stock is True
+    assert restored.deleted_at is None

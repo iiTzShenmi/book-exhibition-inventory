@@ -25,7 +25,9 @@ from app import (
     hash_invite_code,
     invite_code_lookup,
     invite_reference,
+    invite_expiration,
     ensure_admin_email_column,
+    apply_security_remediation_migration,
     migrate_plaintext_invite_codes,
 )
 from database.models import AdminInvite
@@ -87,6 +89,7 @@ def main():
         print("[step] ensuring tables exist...")
         db.create_all()
         ensure_admin_email_column()
+        apply_security_remediation_migration()
         migrate_plaintext_invite_codes()
         print("[step] inserting invite into DB...")
         invite = AdminInvite(
@@ -95,6 +98,7 @@ def main():
             code_lookup=invite_code_lookup(code),
             memo=args.memo,
             role=args.role,
+            expires_at=invite_expiration(),
         )
         db.session.add(invite)
         db.session.commit()
@@ -109,7 +113,10 @@ def main():
     if total is not None:
         print(f"[info] admin_invite row count: {total}")
         if latest:
-            print(f"[info] latest invite id={latest.id} role={latest.role} memo={latest.memo or '-'} created={latest.created_at}")
+            print(
+                f"[info] latest invite id={latest.id} role={latest.role} "
+                f"memo={latest.memo or '-'} created={latest.created_at} expires={latest.expires_at}"
+            )
     return 0
 
 

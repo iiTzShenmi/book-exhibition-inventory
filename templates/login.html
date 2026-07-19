@@ -10,24 +10,24 @@
   </div>
 
   <div>
-    <p class="login-sub">登入以進入展場後台，維護庫存與櫃位。</p>
+    <p id="login-help" class="login-sub">僅限已建立帳號的工作人員登入，以維護庫存與櫃位。</p>
   </div>
 
   {% if error %}
-    <p class="error">{{ error }}</p>
+    <p class="error" role="alert">{{ error }}</p>
   {% endif %}
 
-  <form class="login-form" method="post">
+  <form class="login-form" method="post" data-submit-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-field">
       <label for="username">帳號</label>
-      <input type="text" id="username" name="username" placeholder="輸入管理帳號" required>
+      <input type="text" id="username" name="username" placeholder="輸入管理帳號" autocomplete="username" required aria-describedby="login-help">
     </div>
     <div class="form-field">
       <label for="password">密碼</label>
-      <input type="password" id="password" name="password" placeholder="輸入密碼" required>
+      <input type="password" id="password" name="password" placeholder="輸入密碼" autocomplete="current-password" required>
     </div>
-    <button class="login-btn" type="submit">登入後台</button>
+    <button class="login-btn" type="submit" data-pending-label="驗證中...">登入後台</button>
   </form>
 
   <div class="form-links">

@@ -10,37 +10,37 @@
   </div>
 
   <div>
-    <p class="login-sub">輸入安全碼建立新的管理帳號。</p>
+    <p id="register-help" class="login-sub">僅限收到邀請安全碼的工作人員註冊。尚未受邀時，請向網站擁有者取得邀請。</p>
   </div>
 
   {% if error %}
-    <p class="error">{{ error }}</p>
+    <p class="error" role="alert">{{ error }}</p>
   {% endif %}
 
-  <form class="login-form" method="post">
+  <form class="login-form" method="post" data-submit-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="form-field">
       <label for="username">帳號</label>
-      <input type="text" id="username" name="username" placeholder="輸入管理帳號" required>
+      <input type="text" id="username" name="username" placeholder="輸入管理帳號" autocomplete="username" required aria-describedby="register-help">
     </div>
     <div class="form-field">
       <label for="email">Gmail</label>
-      <input type="email" id="email" name="email" placeholder="輸入 Gmail" required>
+      <input type="email" id="email" name="email" placeholder="輸入 Gmail" autocomplete="email" required>
     </div>
     <div class="form-field">
       <label for="password">密碼</label>
-      <input type="password" id="password" name="password" placeholder="設定密碼" required>
+      <input type="password" id="password" name="password" placeholder="設定密碼" autocomplete="new-password" required>
     </div>
     <div class="form-field">
       <label for="confirm_password">確認密碼</label>
-      <input type="password" id="confirm_password" name="confirm_password" placeholder="再次輸入密碼" required>
+      <input type="password" id="confirm_password" name="confirm_password" placeholder="再次輸入密碼" autocomplete="new-password" required>
     </div>
     <div class="form-field">
       <label for="security_code">安全碼</label>
-      <input type="text" id="security_code" name="security_code" placeholder="輸入管理安全碼" required>
-      <small class="muted">此碼為驗證邀請碼，請聯絡網站擁有者。</small>
+      <input type="text" id="security_code" name="security_code" placeholder="輸入管理安全碼" autocomplete="one-time-code" minlength="6" required>
+      <small class="muted">邀請安全碼至少 6 個字元。安全碼驗證失敗時不會揭露原因。</small>
     </div>
-    <button class="login-btn" type="submit">建立帳號並登入</button>
+    <button class="login-btn" type="submit" data-pending-label="驗證中...">建立帳號並登入</button>
   </form>
 
   <a href="{{ url_for('auth.login') }}" class="back-link">← 已有帳號？返回登入</a>

@@ -1,12 +1,14 @@
 from collections import defaultdict
-from datetime import datetime
-import json
+from datetime import datetime, timedelta
+import hashlib
 import time
+import unicodedata
+from urllib.parse import urlparse
 
 from flask import Blueprint, current_app, jsonify, make_response, redirect, render_template, render_template_string, request, send_from_directory, session, url_for
 from sqlalchemy import func, or_
 
-from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, db
+from database.models import Book, BookTitle, Cabinet, EventSchedule, IssueReport, db
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 from app import (
     active_books_query,
@@ -24,33 +26,79 @@ from app import (
 
 api_bp = Blueprint("api", __name__)
 
+ISSUE_REPORT_ALLOWED_FIELDS = {"name", "type", "description", "website"}
+ISSUE_REPORT_ALLOWED_TYPES = {"bug", "data", "performance", "other"}
+ISSUE_REPORT_DEDUP_WINDOW = timedelta(minutes=10)
+
+
+def _normalize_issue_text(value, max_length: int, *, allow_newlines: bool = False) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = unicodedata.normalize("NFKC", value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not normalized or len(normalized) > max_length:
+        return None
+    if any(
+        unicodedata.category(char).startswith("C")
+        and not (allow_newlines and char == "\n")
+        for char in normalized
+    ):
+        return None
+    if not allow_newlines and "\n" in normalized:
+        return None
+    return normalized
+
+
+def _issue_source_path() -> str:
+    path = urlparse(request.referrer or "").path
+    return path[:255] if path.startswith("/") else ""
+
+
+def _issue_fingerprint(name: str, issue_type: str, description: str) -> str:
+    normalized = "\x1f".join((name.casefold(), issue_type, description.casefold()))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
 
 @api_bp.route("/api/report_issue", methods=["POST"])
 @limiter.limit("10 per hour")
 def report_issue():
-    """Persist footer issue reports instead of showing a fake success message."""
-    payload = request.get_json(silent=True) or {}
-    name = (payload.get("name") or "").strip()[:80]
-    issue_type = (payload.get("type") or "").strip()[:40]
-    description = (payload.get("description") or "").strip()[:1200]
-    allowed_types = {"bug", "data", "performance", "other"}
+    """Store validated public reports outside the security audit trail."""
+    if not request.is_json:
+        return jsonify({"success": False, "message": "回報格式必須為 JSON。"}), 415
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) - ISSUE_REPORT_ALLOWED_FIELDS:
+        return jsonify({"success": False, "message": "回報格式不正確。"}), 400
 
-    if not name or issue_type not in allowed_types or not description:
+    honeypot = payload.get("website", "")
+    if not isinstance(honeypot, str):
+        return jsonify({"success": False, "message": "回報格式不正確。"}), 400
+    if honeypot.strip():
+        return jsonify({"success": True, "message": "回報已送出，工作人員會處理。"})
+
+    name = _normalize_issue_text(payload.get("name"), 80)
+    issue_type = payload.get("type")
+    description = _normalize_issue_text(payload.get("description"), 1200, allow_newlines=True)
+    if not name or issue_type not in ISSUE_REPORT_ALLOWED_TYPES or not description:
         return jsonify({"success": False, "message": "請完整填寫回報內容。"}), 400
 
-    details = {
-        "name": name,
-        "type": issue_type,
-        "description": description,
-        "path": request.headers.get("Referer", "")[:255],
-    }
+    now = datetime.utcnow()
+    fingerprint = _issue_fingerprint(name, issue_type, description)
+    duplicate = (
+        IssueReport.query
+        .filter_by(fingerprint=fingerprint)
+        .filter(IssueReport.created_at >= now - ISSUE_REPORT_DEDUP_WINDOW)
+        .first()
+    )
+    if duplicate:
+        return jsonify({"success": True, "message": "回報已送出，工作人員會處理。"})
+
     try:
         db.session.add(
-            AuditLog(
-                actor=session.get("admin_user") or "public",
-                action="issue_report",
-                target=issue_type,
-                details=json.dumps(details, ensure_ascii=False),
+            IssueReport(
+                reporter_name=name,
+                category=issue_type,
+                description=description,
+                source_path=_issue_source_path(),
+                fingerprint=fingerprint,
             )
         )
         db.session.commit()
@@ -59,7 +107,7 @@ def report_issue():
         current_app.logger.exception("issue report submission failed")
         return jsonify({"success": False, "message": "回報送出失敗，請稍後再試。"}), 500
 
-    return jsonify({"success": True, "message": "回報已送出，工作人員會於操作紀錄中查看。"})
+    return jsonify({"success": True, "message": "回報已送出，工作人員會處理。"})
 
 
 @api_bp.route("/search")

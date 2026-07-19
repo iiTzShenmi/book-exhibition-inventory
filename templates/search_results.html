@@ -4,18 +4,37 @@
   <div class="section-head">
     <p class="eyebrow">搜尋結果</p>
     <h2>「{{ query }}」的展場書籍</h2>
-    <p class="muted">展櫃與備書櫃同步呈現，即時掌握庫存狀態。</p>
+    <p id="result-summary" class="muted" role="status" aria-live="polite">
+      {% if grouped_books %}{{ grouped_books | length }} 筆結果{% else %}0 筆結果{% endif %}
+      {% if request.args.get('cabinet') %}，櫃位：{{ request.args.get('cabinet') }}{% endif %}
+      {% if request.args.get('status') == 'in' %}，僅顯示有庫存{% elif request.args.get('status') == 'out' %}，僅顯示缺貨中{% endif %}
+      {% if request.args.get('author') %}，作者：{{ request.args.get('author') }}{% endif %}
+    </p>
+    {% if request.args.get('cabinet') or request.args.get('status') or request.args.get('author') %}
+    <nav class="active-filters" aria-label="目前篩選條件">
+      {% if request.args.get('cabinet') %}
+      <a class="active-filter" href="{{ url_for('api.search', q=request.args.get('q', ''), author=request.args.get('author', ''), status=request.args.get('status', '')) }}">櫃位：{{ request.args.get('cabinet') }} <span aria-hidden="true">×</span><span class="sr-only">移除此篩選</span></a>
+      {% endif %}
+      {% if request.args.get('status') %}
+      <a class="active-filter" href="{{ url_for('api.search', q=request.args.get('q', ''), author=request.args.get('author', ''), cabinet=request.args.get('cabinet', '')) }}">{{ '有庫存' if request.args.get('status') == 'in' else '缺貨中' }} <span aria-hidden="true">×</span><span class="sr-only">移除此篩選</span></a>
+      {% endif %}
+      {% if request.args.get('author') %}
+      <a class="active-filter" href="{{ url_for('api.search', q=request.args.get('q', ''), cabinet=request.args.get('cabinet', ''), status=request.args.get('status', '')) }}">作者：{{ request.args.get('author') }} <span aria-hidden="true">×</span><span class="sr-only">移除此篩選</span></a>
+      {% endif %}
+      <a class="active-filter active-filter--clear" href="{{ url_for('api.search', q=request.args.get('q', '')) }}" data-clear-all-filters>清除全部篩選</a>
+    </nav>
+    {% endif %}
   </div>
 
   {% if grouped_books %}
-  <div class="grid results-grid">
+  <div class="grid results-grid" aria-describedby="result-summary">
     {% for title, entries in grouped_books.items() %}
     {% set cover = (covers or {}).get(title) %}
     {% set author = (authors or {}).get(title, '') %}
     <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ title }}" data-author="{{ author }}" data-entries='{{ entries | tojson | safe }}' data-source="search_result">
       {% if cover %}
       <div class="cover-pop">
-        <img src="{{ cover }}" alt="{{ title }}">
+        <img src="{{ cover }}" alt="{{ title }} 封面">
       </div>
       {% endif %}
       <div class="card__header">
@@ -56,7 +75,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state compact">
+  <div class="empty-state compact" role="status">
     <div class="empty-state__icon">🔎</div>
     <h3>沒有找到「{{ query }}」</h3>
     <p class="muted">試試部分書名、主題關鍵字，或檢查看看這些建議。</p>
@@ -73,7 +92,7 @@
     <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ item.title }}" data-author="{{ item.author or '' }}" data-entries='{{ item.entries | tojson | safe }}' data-source="suggestion">
       {% if cover %}
       <div class="cover-pop">
-        <img src="{{ cover }}" alt="{{ item.title }}">
+        <img src="{{ cover }}" alt="{{ item.title }} 封面">
       </div>
       {% endif %}
       <div class="card__header">
