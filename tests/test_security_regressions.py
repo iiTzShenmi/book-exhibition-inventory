@@ -37,6 +37,13 @@ def test_public_header_displays_configured_release_version(client):
     assert f"EXIS v{app_module.APP_VERSION}" in response.get_data(as_text=True)
 
 
+def test_project_documentation_displays_configured_release_version(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert f"<strong>目前版本：</strong> v{app_module.APP_VERSION}" in response.get_data(as_text=True)
+
+
 def test_disabled_quick_guide_control_stays_hidden_on_mobile():
     template = Path("templates/base.html").read_text(encoding="utf-8")
     stylesheet = Path("static/css/exis_refresh.css").read_text(encoding="utf-8")
@@ -49,6 +56,20 @@ def test_login_requires_csrf(client):
     response = client.post("/login", data={"username": "admin", "password": "wrong"})
 
     assert response.status_code == 400
+
+
+def test_login_uses_external_stylesheet_under_strict_csp(client):
+    response = client.get("/login")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "css/login.css" in body
+    assert "<style>" not in body
+    assert "style-src 'self'" in response.headers["Content-Security-Policy"]
+
+    stylesheet = client.get("/static/css/login.css")
+    assert stylesheet.status_code == 200
+    assert b"body.login-page" in stylesheet.data
 
 
 def test_csrf_rejects_client_seeded_token(client):
