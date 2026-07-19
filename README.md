@@ -4,6 +4,12 @@ Flask-based inventory management system for book exhibitions. This single README
 
 ## Quick Start
 
+## Release Versioning
+
+- Current release: `2.3.1`.
+- `APP_VERSION` near the top of `app.py` is the sole source of the visible EXIS version. It is rendered in the public header as `EXIS v<version>`.
+- Increment `APP_VERSION` before every Git push: use a patch increment for fixes, a minor increment for backwards-compatible features, and a major increment for breaking changes. Include the version bump in the pushed commit.
+
 ### Production (Render)
 - PostgreSQL via `DATABASE_URL` is the single source of truth.
 - CSV is only for one-time imports/exports.

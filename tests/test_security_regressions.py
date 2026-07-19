@@ -30,6 +30,13 @@ def test_security_headers_are_present(client):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
+def test_public_header_displays_configured_release_version(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert f"EXIS v{app_module.APP_VERSION}" in response.get_data(as_text=True)
+
+
 def test_disabled_quick_guide_control_stays_hidden_on_mobile():
     template = Path("templates/base.html").read_text(encoding="utf-8")
     stylesheet = Path("static/css/exis_refresh.css").read_text(encoding="utf-8")

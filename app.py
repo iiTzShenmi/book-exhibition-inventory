@@ -26,6 +26,7 @@ from database.models import EventSchedule, BackupArchive, event_books
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+APP_VERSION = "2.3.1"
 DATA_DIR = os.path.join(BASE_DIR, "database")
 os.makedirs(DATA_DIR, exist_ok=True)
 CSV_PATH = os.path.join(DATA_DIR, "inventory.csv")
@@ -116,6 +117,7 @@ DEFAULT_ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 app = Flask(__name__)
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+app.config["APP_VERSION"] = APP_VERSION
 app.config["STATIC_VERSION"] = os.environ.get("STATIC_VERSION") or datetime.utcnow().strftime("%Y%m%d%H%M%S")
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or f"sqlite:///{DB_PATH}"
@@ -1898,6 +1900,12 @@ def inject_is_admin():
 def inject_static_version():
     """Expose a safe static asset version string for cache busting."""
     return {"static_version": app.config.get("STATIC_VERSION", "")}
+
+
+@app.context_processor
+def inject_app_version():
+    """Expose the released application version to templates."""
+    return {"app_version": app.config["APP_VERSION"]}
 
 
 @app.context_processor
