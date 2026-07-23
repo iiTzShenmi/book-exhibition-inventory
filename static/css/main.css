@@ -2638,7 +2638,7 @@ body:not(.is-admin) .result-card.has-cover.show-info .reserve-hint {
 
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
 }
 
@@ -2669,6 +2669,7 @@ body:not(.is-admin) .result-card.has-cover.show-info .reserve-hint {
 }
 
 @media (max-width: 720px) {
+  .filter-grid { grid-template-columns: 1fr; }
   .info-grid { grid-template-columns: 1fr; }
   .qa-grid { grid-template-columns: 1fr; }
   .hero__list { grid-template-columns: 1fr; }

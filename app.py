@@ -21,13 +21,15 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.middleware.proxy_fix import ProxyFix
 from tools import env_loader  # loads .env into os.environ
-from database.models import TopSellerSnapshot, db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite
+from database.models import TopSellerSnapshot, db, Book, Cabinet, BookTitle, Inventory, AuditLog, AdminUser, AdminInvite, FloorPlanObject, FloorPlanPosition
 from database.models import EventSchedule, BackupArchive, event_books
+from database.migrations.floor_plan_20260723 import upgrade as upgrade_floor_plan_20260723
+from database.migrations.floor_plan_objects_20260724 import upgrade as upgrade_floor_plan_objects_20260724
 from database.migrations.security_remediation_20260719 import upgrade as upgrade_security_remediation_20260719
 from similarity import BookProfile, suggest_for_missing_title, parse_topics_field
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-APP_VERSION = "2.3.5"
+APP_VERSION = "2.4"
 DATA_DIR = os.path.join(BASE_DIR, "database")
 os.makedirs(DATA_DIR, exist_ok=True)
 CSV_PATH = os.path.join(DATA_DIR, "inventory.csv")
@@ -1241,6 +1243,16 @@ def apply_security_remediation_migration() -> None:
     upgrade_security_remediation_20260719(db.engine)
 
 
+def apply_floor_plan_migration() -> None:
+    """Apply the persisted floor-plan schema migration."""
+    upgrade_floor_plan_20260723(db.engine)
+
+
+def apply_floor_plan_object_migration() -> None:
+    """Apply the persisted surrounding-object schema migration."""
+    upgrade_floor_plan_objects_20260724(db.engine)
+
+
 def is_postgres():
     return bool(DATABASE_URL) and DATABASE_URL.startswith("postgresql://")
 
@@ -1385,6 +1397,8 @@ def initialize_app(*, sync_csv: bool = True):
         print("[init] checking schema...")
         ensure_admin_email_column()
         apply_security_remediation_migration()
+        apply_floor_plan_migration()
+        apply_floor_plan_object_migration()
         migrate_plaintext_invite_codes()
         ensure_default_admin()
         ensure_advance_admin_exists()
@@ -1426,6 +1440,132 @@ def cabinet_type_name(cabinet):
     if not cabinet or not getattr(cabinet, "type", None):
         return ""
     return cabinet.type.strip().lower()
+
+
+# These initial positions reproduce the supplied venue plan. Administrators can
+# override them through the authenticated editor; unrecognised display cabinets
+# stay unplaced until explicitly added.
+DEFAULT_FLOOR_PLAN_ZONES = (
+    {"label": "管理", "aliases": ("管理", "gvhbr"), "left": 29, "top": 17, "width": 14, "height": 8},
+    {"label": "勵志", "aliases": ("勵志",), "left": 51, "top": 17, "width": 12, "height": 8},
+    {"label": "親子 / 文學", "aliases": ("親子", "親子+文學", "親子文學", "文學"), "left": 51, "top": 25, "width": 18, "height": 8},
+    {"label": "新書", "aliases": ("新書",), "left": 17, "top": 40, "width": 7, "height": 20},
+    {"label": "商業 1", "aliases": ("商業1",), "left": 34, "top": 40, "width": 13, "height": 7},
+    {"label": "商業 2", "aliases": ("商業2",), "left": 34, "top": 47, "width": 13, "height": 7},
+    {"label": "科普 1", "aliases": ("科普1",), "left": 56, "top": 40, "width": 13, "height": 7},
+    {"label": "科普 2", "aliases": ("科普2",), "left": 56, "top": 47, "width": 13, "height": 7},
+    {"label": "商業 3", "aliases": ("商業3",), "left": 34, "top": 61, "width": 13, "height": 7},
+    {"label": "商業 4", "aliases": ("商業4",), "left": 34, "top": 68, "width": 13, "height": 7},
+    {"label": "科普 3", "aliases": ("科普3",), "left": 56, "top": 61, "width": 13, "height": 7},
+    {"label": "健康", "aliases": ("健康",), "left": 56, "top": 68, "width": 13, "height": 7},
+    {"label": "工作", "aliases": ("工作",), "left": 26, "top": 82, "width": 13, "height": 7},
+    {"label": "商業 5", "aliases": ("商業5",), "left": 26, "top": 89, "width": 13, "height": 7},
+    {"label": "社文 1", "aliases": ("社文1",), "left": 54, "top": 82, "width": 13, "height": 7},
+    {"label": "社文 2", "aliases": ("社文2",), "left": 54, "top": 89, "width": 13, "height": 7},
+    {"label": "暢銷", "aliases": ("暢榜", "暢銷"), "left": 78, "top": 18, "width": 4, "height": 42},
+)
+
+FLOOR_PLAN_OBJECT_KINDS = {
+    "walkway",
+    "entrance",
+    "checkout",
+    "service",
+    "activity",
+    "fixture",
+}
+
+DEFAULT_FLOOR_PLAN_OBJECTS = (
+    {"object_key": "walkway-top", "kind": "walkway", "label": "三米走道", "left": 0, "top": 0, "width": 100, "height": 8},
+    {"object_key": "walkway-left", "kind": "walkway", "label": "走道", "left": 0, "top": 10, "width": 3, "height": 78},
+    {"object_key": "entrance-one", "kind": "entrance", "label": "門面 1", "left": 0, "top": 17, "width": 12, "height": 17},
+    {"object_key": "entrance-two", "kind": "entrance", "label": "門面 2", "left": 3, "top": 40, "width": 6, "height": 15},
+    {"object_key": "checkout", "kind": "checkout", "label": "收銀區", "left": 82, "top": 74, "width": 18, "height": 11},
+)
+
+
+def normalize_floor_plan_cabinet_name(name: str | None) -> str:
+    """Normalize cabinet names for matching the supplied initial venue plan."""
+    return re.sub(r"\s+", "", (name or "").strip().lower()).replace("＋", "+")
+
+
+def default_floor_plan_position(cabinet_name: str | None):
+    normalized_name = normalize_floor_plan_cabinet_name(cabinet_name)
+    for zone in DEFAULT_FLOOR_PLAN_ZONES:
+        if any(normalize_floor_plan_cabinet_name(alias) == normalized_name for alias in zone["aliases"]):
+            return zone
+    return None
+
+
+def floor_plan_layout_for_cabinets(cabinets):
+    """Return public-safe effective positions for display cabinets only."""
+    display_cabinets = [cabinet for cabinet in cabinets if cabinet_type_name(cabinet) == "display"]
+    cabinet_ids = [cabinet.id for cabinet in display_cabinets if cabinet.id]
+    overrides = (
+        FloorPlanPosition.query.filter(FloorPlanPosition.cabinet_id.in_(cabinet_ids)).all()
+        if cabinet_ids
+        else []
+    )
+    overrides_by_cabinet = {position.cabinet_id: position for position in overrides}
+    layout = []
+    for cabinet in display_cabinets:
+        default_position = default_floor_plan_position(cabinet.name)
+        override = overrides_by_cabinet.get(cabinet.id)
+        source = override or default_position
+        layout.append({
+            "cabinet_id": cabinet.id,
+            "cabinet_name": cabinet.name,
+            "label": (default_position or {}).get("label") or cabinet.name,
+            "left": float(source.left_percent) if override else (default_position or {}).get("left"),
+            "top": float(source.top_percent) if override else (default_position or {}).get("top"),
+            "width": float(source.width_percent) if override else (default_position or {}).get("width"),
+            "height": float(source.height_percent) if override else (default_position or {}).get("height"),
+            "placed": bool(source),
+            "has_override": bool(override),
+            "has_default": bool(default_position),
+        })
+    return layout
+
+
+def floor_plan_object_to_dict(floor_object):
+    """Serialize a non-inventory floor-plan object for the editor and public map."""
+    return {
+        "object_key": floor_object.object_key,
+        "kind": floor_object.kind,
+        "label": floor_object.label,
+        "left": float(floor_object.left_percent),
+        "top": float(floor_object.top_percent),
+        "width": float(floor_object.width_percent),
+        "height": float(floor_object.height_percent),
+    }
+
+
+def floor_plan_objects():
+    """Return saved surrounding objects, or the venue defaults before first save."""
+    saved_objects = FloorPlanObject.query.order_by(FloorPlanObject.object_key.asc()).all()
+    if saved_objects:
+        return [floor_plan_object_to_dict(floor_object) for floor_object in saved_objects]
+    return [dict(floor_object) for floor_object in DEFAULT_FLOOR_PLAN_OBJECTS]
+
+
+def ensure_default_floor_plan_objects() -> None:
+    """Persist the supplied venue features the first time an editor is opened."""
+    if FloorPlanObject.query.first():
+        return
+    db.session.add_all(
+        [
+            FloorPlanObject(
+                object_key=floor_object["object_key"],
+                kind=floor_object["kind"],
+                label=floor_object["label"],
+                left_percent=floor_object["left"],
+                top_percent=floor_object["top"],
+                width_percent=floor_object["width"],
+                height_percent=floor_object["height"],
+            )
+            for floor_object in DEFAULT_FLOOR_PLAN_OBJECTS
+        ]
+    )
+    db.session.commit()
 
 def cabinet_to_dict(cabinet):
     """Serialize a cabinet record for JSON responses."""
@@ -1766,6 +1906,8 @@ def ensure_schema_migrations():
                 ensure_event_date_columns()
                 ensure_admin_email_column()
                 apply_security_remediation_migration()
+                apply_floor_plan_migration()
+                apply_floor_plan_object_migration()
                 migrate_plaintext_invite_codes()
                 ensure_advance_admin_exists()
                 inspector = db.inspect(db.engine)

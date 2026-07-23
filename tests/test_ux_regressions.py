@@ -50,6 +50,14 @@ def test_public_form_markup_has_bounded_input_and_live_feedback():
     assert 'aria-live="polite"' in template
 
 
+def test_advanced_filters_use_three_desktop_columns_and_stack_on_mobile():
+    stylesheet = (PROJECT_ROOT / "static" / "css" / "main.css").read_text(encoding="utf-8")
+
+    assert ".filter-grid" in stylesheet
+    assert "grid-template-columns: repeat(3, minmax(0, 1fr));" in stylesheet
+    assert ".filter-grid { grid-template-columns: 1fr; }" in stylesheet
+
+
 def test_auth_templates_clarify_invitation_flow_without_changing_security_contract():
     login_template = (PROJECT_ROOT / "templates" / "login.html").read_text(encoding="utf-8")
     register_template = (PROJECT_ROOT / "templates" / "register.html").read_text(

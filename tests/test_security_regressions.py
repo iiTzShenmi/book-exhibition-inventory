@@ -19,6 +19,8 @@ from database.models import (
     AuditLog,
     BookTitle,
     Cabinet,
+    FloorPlanObject,
+    FloorPlanPosition,
     Inventory,
     IssueReport,
     db,
@@ -169,6 +171,207 @@ def test_book_details_get_does_not_change_view_count(client):
 
     assert response.status_code == 200
     assert db.session.get(BookTitle, title.id).view_count == 0
+
+
+def test_public_book_details_use_floor_map_and_exclude_reserve_locations(client):
+    title = BookTitle(title="Mapped details")
+    management = Cabinet(name="管理", type="display")
+    science = Cabinet(name="科普1", type="display")
+    reserve = Cabinet(name="備書區", type="reserve")
+    db.session.add_all([title, management, science, reserve])
+    db.session.flush()
+    db.session.add_all(
+        [
+            Inventory(title_id=title.id, cabinet_id=management.id, in_stock=True),
+            Inventory(title_id=title.id, cabinet_id=science.id, in_stock=False),
+            Inventory(title_id=title.id, cabinet_id=reserve.id, in_stock=True),
+        ]
+    )
+    db.session.commit()
+
+    response = client.get("/book_details/Mapped%20details")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'data-book-location-map' in body
+    assert 'data-book-location-canvas' in body
+    assert 'data-floor-plan=' in body
+    assert 'data-floor-plan-objects=' in body
+    assert 'data-book-location-unmapped' not in body
+    assert '尚未設定平面位置' not in body
+    assert 'data-ui-action="close-book-modal"' in body
+    assert "in-stock" in body
+    assert "out-stock" in body
+    assert "備書區" not in body
+
+
+def test_book_location_map_has_plan_aliases_and_search_cover_actions():
+    script = Path("static/js/base.js").read_text(encoding="utf-8")
+    editor_script = Path("static/js/floor_plan_editor.js").read_text(encoding="utf-8")
+    template = Path("templates/search_results.html").read_text(encoding="utf-8")
+    editor_template = Path("templates/admin_floor_plan.html").read_text(encoding="utf-8")
+    detail_route = Path("routes/api.py").read_text(encoding="utf-8")
+
+    assert "dataset.floorPlan" in script
+    assert "dataset.floorPlanObjects" in script
+    assert "BOOK_LOCATION_MAP_ZONES" not in script
+    assert "data-floor-plan" in detail_route
+    assert "data-floor-plan-objects" in detail_route
+    assert "data-book-location-unmapped" not in script
+    assert "initializeBookLocationMap(box)" in script
+    assert "snapSelectedItem" in editor_script
+    assert "data-plan-resize" in editor_script
+    assert "data-plan-snap-step" in editor_template
+    assert "data-plan-add-object" in editor_template
+    assert 'data-ui-action="open-book-modal"' in template
+    assert 'aria-label="查看《{{ title }}》的展場位置"' in template
+
+
+def test_floor_plan_editor_requires_authenticated_admin(csrf_client):
+    page_response = csrf_client.get("/admin/floor-plan")
+    save_response = csrf_client.post(
+        "/admin/floor-plan/layout",
+        json={"positions": []},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert page_response.status_code == 302
+    assert "/login" in page_response.headers["Location"]
+    assert save_response.status_code == 401
+
+
+def test_floor_plan_editor_validates_and_persists_display_positions(csrf_client):
+    user = AdminUser(
+        username="floor-plan-admin",
+        email="floor-plan-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    display = Cabinet(name="管理", type="display")
+    unplaced_display = Cabinet(name="特展櫃", type="display")
+    reserve = Cabinet(name="平面圖備書櫃", type="reserve")
+    db.session.add_all([user, display, unplaced_display, reserve])
+    db.session.commit()
+    with csrf_client.session_transaction() as sess:
+        sess["is_admin"] = True
+        sess["admin_user"] = user.username
+        sess["admin_id"] = user.id
+        sess["admin_role"] = user.role
+
+    page_response = csrf_client.get("/admin/floor-plan")
+    malformed_response = csrf_client.post(
+        "/admin/floor-plan/layout",
+        json={"positions": [{"cabinet_id": display.id, "left": -1, "top": 2, "width": 10, "height": 10}]},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    reserve_response = csrf_client.post(
+        "/admin/floor-plan/layout",
+        json={"positions": [{"cabinet_id": reserve.id, "left": 2, "top": 2, "width": 10, "height": 10}]},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    save_response = csrf_client.post(
+        "/admin/floor-plan/layout",
+        json={"positions": [{"cabinet_id": display.id, "left": 12.5, "top": 18, "width": 16, "height": 9}]},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert page_response.status_code == 200
+    assert 'data-floor-plan-editor' in page_response.get_data(as_text=True)
+    assert 'href="/admin/floor-plan"' in page_response.get_data(as_text=True)
+    assert malformed_response.status_code == 400
+    assert reserve_response.status_code == 400
+    assert save_response.status_code == 200
+    assert FloorPlanPosition.query.filter_by(cabinet_id=reserve.id).first() is None
+    position = FloorPlanPosition.query.filter_by(cabinet_id=display.id).one()
+    assert position.left_percent == pytest.approx(12.5)
+    assert position.height_percent == pytest.approx(9)
+    assert AuditLog.query.filter_by(action="update_floor_plan", target="floor_plan").count() == 1
+
+    saved_layout = save_response.get_json()["layout"]
+    saved_display = next(item for item in saved_layout if item["cabinet_id"] == display.id)
+    unplaced = next(item for item in saved_layout if item["cabinet_id"] == unplaced_display.id)
+    assert saved_display["has_override"] is True
+    assert saved_display["left"] == pytest.approx(12.5)
+    assert unplaced["placed"] is False
+
+    invalid_object_response = csrf_client.post(
+        "/admin/floor-plan/layout",
+        json={
+            "positions": [],
+            "objects": [{
+                "object_key": "invalid-object",
+                "kind": "activity",
+                "label": "活動\u0000區",
+                "left": 12,
+                "top": 12,
+                "width": 20,
+                "height": 10,
+            }],
+        },
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+    saved_objects = app_module.floor_plan_objects()
+    saved_objects.append({
+        "object_key": "activity-zone",
+        "kind": "activity",
+        "label": "活動區",
+        "left": 70,
+        "top": 56,
+        "width": 20,
+        "height": 12,
+    })
+    object_response = csrf_client.post(
+        "/admin/floor-plan/layout",
+        json={"positions": [], "objects": saved_objects},
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert invalid_object_response.status_code == 400
+    assert object_response.status_code == 200
+    activity_zone = FloorPlanObject.query.filter_by(object_key="activity-zone").one()
+    assert activity_zone.kind == "activity"
+    assert activity_zone.left_percent == pytest.approx(70)
+    assert any(item["object_key"] == "activity-zone" for item in object_response.get_json()["objects"])
+    assert AuditLog.query.filter_by(action="update_floor_plan", target="floor_plan").count() == 2
+
+    reset_response = csrf_client.delete(
+        f"/admin/floor-plan/layout/{display.id}",
+        headers={"X-CSRF-Token": "test-csrf"},
+    )
+
+    assert reset_response.status_code == 200
+    assert FloorPlanPosition.query.filter_by(cabinet_id=display.id).first() is None
+    assert reset_response.get_json()["position"]["left"] == pytest.approx(29)
+    assert AuditLog.query.filter_by(action="reset_floor_plan", target=str(display.id)).count() == 1
+
+
+def test_floor_plan_migration_is_idempotent(client):
+    db.session.execute(text("DROP TABLE floor_plan_position"))
+    db.session.commit()
+
+    app_module.apply_floor_plan_migration()
+    app_module.apply_floor_plan_migration()
+
+    assert "floor_plan_position" in db.inspect(db.engine).get_table_names()
+
+
+def test_floor_plan_object_migration_is_idempotent(client):
+    db.session.execute(text("DROP TABLE floor_plan_object"))
+    db.session.commit()
+
+    app_module.apply_floor_plan_object_migration()
+    app_module.apply_floor_plan_object_migration()
+
+    columns = {column["name"] for column in db.inspect(db.engine).get_columns("floor_plan_object")}
+    assert {
+        "object_key",
+        "kind",
+        "label",
+        "left_percent",
+        "top_percent",
+        "width_percent",
+        "height_percent",
+    }.issubset(columns)
 
 
 def test_book_card_uses_declarative_actions_under_strict_csp(csrf_client):

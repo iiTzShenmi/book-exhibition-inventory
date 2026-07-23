@@ -206,8 +206,17 @@
 
   function renderCabinetManager(cabinets) {
     const picker = document.getElementById('cabinet-picker');
+    const clearEmptyButton = document.getElementById('cab-action-clear-empty');
 
     syncCabinetNames(cabinets);
+
+    if (clearEmptyButton) {
+      const emptyCount = cabinets.filter((cabinet) => (
+        cabinet.type === 'display' && Number(cabinet.book_count) === 0
+      )).length;
+      clearEmptyButton.disabled = emptyCount === 0;
+      clearEmptyButton.title = emptyCount ? '' : '目前沒有可清除的空展示櫃';
+    }
 
     if (picker) {
       picker.replaceChildren();
@@ -358,6 +367,37 @@ async function toggleCabinetType(id) {
     } catch (err) {
       console.error(err);
       showToast('刪除失敗', false);
+    }
+  }
+
+  async function clearEmptyCabinets(button) {
+    const emptyCount = cabinetCache.filter((cabinet) => (
+      cabinet.type === 'display' && Number(cabinet.book_count) === 0
+    )).length;
+    if (!emptyCount) {
+      showToast('目前沒有可清除的空展示櫃', false);
+      return;
+    }
+    if (!window.confirm(`確定要清除 ${emptyCount} 個空展示櫃嗎？備書櫃不會受影響。此動作無法復原。`)) return;
+
+    setPending(button, true, '清除中...');
+    try {
+      const res = await fetch('/cabinets/empty', {
+        method: 'DELETE',
+        headers: headersWithCsrf(),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        showToast(data.message || '清除失敗', false);
+        return;
+      }
+      showToast(data.message || '已清除空展示櫃', true);
+      await loadCabinets();
+    } catch (err) {
+      console.error(err);
+      showToast('清除失敗', false);
+    } finally {
+      setPending(button, false);
     }
   }
 
@@ -1357,6 +1397,10 @@ async function toggleCabinetType(id) {
     bindActionToggleButtons();
     bindOverlayClickClose();
     bindKeyboardShortcuts();
+    const clearEmptyButton = document.getElementById('cab-action-clear-empty');
+    if (clearEmptyButton) {
+      clearEmptyButton.addEventListener('click', () => clearEmptyCabinets(clearEmptyButton));
+    }
     const hash = window.location.hash.replace('#', '');
     if (hash === 'add-book') {
       openAddBookModal();

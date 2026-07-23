@@ -761,17 +761,142 @@
     }).catch(() => {});
   }
 
+  function normalizeBookLocationName(name) {
+    return String(name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/[＋+]/g, '+');
+  }
+
+  function parseBookLocationFloorPlan(rawPlan) {
+    try {
+      const plan = JSON.parse(rawPlan || '[]');
+      if (!Array.isArray(plan)) return [];
+      return plan.filter((position) => (
+        position
+        && typeof position === 'object'
+        && position.placed === true
+        && Number.isFinite(Number(position.left))
+        && Number.isFinite(Number(position.top))
+        && Number.isFinite(Number(position.width))
+        && Number.isFinite(Number(position.height))
+        && Number(position.width) > 0
+        && Number(position.height) > 0
+      ));
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function parseBookLocationFloorPlanObjects(rawObjects) {
+    const allowedKinds = new Set(['walkway', 'entrance', 'checkout', 'service', 'activity', 'fixture']);
+    try {
+      const objects = JSON.parse(rawObjects || '[]');
+      if (!Array.isArray(objects)) return [];
+      return objects.filter((item) => (
+        item
+        && typeof item === 'object'
+        && allowedKinds.has(item.kind)
+        && Number.isFinite(Number(item.left))
+        && Number.isFinite(Number(item.top))
+        && Number.isFinite(Number(item.width))
+        && Number.isFinite(Number(item.height))
+        && Number(item.width) > 0
+        && Number(item.height) > 0
+      ));
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function initializeBookLocationMap(container) {
+    const root = container?.querySelector('[data-book-location-map]');
+    if (!root) return;
+
+    let entries = [];
+    try {
+      entries = JSON.parse(root.dataset.locationEntries || '[]');
+    } catch (err) {
+      entries = [];
+    }
+    entries = Array.isArray(entries) ? entries : [];
+    const floorPlan = parseBookLocationFloorPlan(root.dataset.floorPlan);
+    const surroundingObjects = parseBookLocationFloorPlanObjects(root.dataset.floorPlanObjects);
+
+    const canvas = root.querySelector('[data-book-location-canvas]');
+    const summary = root.querySelector('[data-book-location-summary]');
+    if (!canvas || !summary) return;
+
+    const zonesByCabinet = new Map(
+      floorPlan.map((zone) => [normalizeBookLocationName(zone.cabinet_name), zone])
+    );
+    const zoneStates = new Map();
+    entries.forEach((entry) => {
+      const zone = zonesByCabinet.get(normalizeBookLocationName(entry?.cabinet));
+      const available = entry?.cls === 'in-stock';
+      if (!zone) return;
+      const existing = zoneStates.get(zone.cabinet_id);
+      if (!existing || available) zoneStates.set(zone.cabinet_id, { ...zone, available });
+    });
+
+    canvas.replaceChildren();
+    surroundingObjects.forEach((floorObject) => {
+      const object = document.createElement('div');
+      object.className = `book-location-map__object book-location-map__object--${floorObject.kind}`;
+      object.style.setProperty('--map-left', String(Number(floorObject.left)));
+      object.style.setProperty('--map-top', String(Number(floorObject.top)));
+      object.style.setProperty('--map-width', String(Number(floorObject.width)));
+      object.style.setProperty('--map-height', String(Number(floorObject.height)));
+      object.textContent = String(floorObject.label || '展場設施');
+      canvas.appendChild(object);
+    });
+    floorPlan.forEach((zone) => {
+      const node = document.createElement('div');
+      node.className = 'book-location-map__node';
+      node.style.setProperty('--map-left', String(Number(zone.left)));
+      node.style.setProperty('--map-top', String(Number(zone.top)));
+      node.style.setProperty('--map-width', String(Number(zone.width)));
+      node.style.setProperty('--map-height', String(Number(zone.height)));
+      const zoneState = zoneStates.get(zone.cabinet_id);
+      if (zoneState) {
+        node.classList.add(zoneState.available ? 'is-in-stock' : 'is-out-stock');
+        const dot = document.createElement('span');
+        dot.className = 'book-location-map__marker';
+        node.appendChild(dot);
+      }
+      const label = document.createElement('span');
+      label.textContent = String(zone.label || zone.cabinet_name || '展示櫃');
+      node.appendChild(label);
+      canvas.appendChild(node);
+    });
+
+    const title = root.dataset.bookTitle || '這本書';
+    summary.textContent = `《${title}》的展場位置已顯示於平面圖。`;
+  }
+
+  window.EXIS.initializeBookLocationMap = initializeBookLocationMap;
+
+  let bookModalReturnFocus = null;
+
   function openBookModal(title) {
     const overlay = document.getElementById('book-modal-overlay');
     const box = document.getElementById('book-modal-box');
     if (!overlay || !box) return;
 
+    bookModalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     trackBookView(title);
     fetch(`/book_details/${encodeURIComponent(title)}`, { cache: 'no-store' })
-      .then(res => res.text())
+      .then((res) => {
+        if (!res.ok) throw new Error(`book details request failed: ${res.status}`);
+        return res.text();
+      })
       .then(html => {
         box.replaceChildren(...parseTrustedHtmlFragment(html));
         overlay.style.display = 'flex';
+        overlay.setAttribute('aria-hidden', 'false');
+        initializeBookLocationMap(box);
+        box.querySelector('[data-ui-action="close-book-modal"]')?.focus();
       })
       .catch(err => {
         console.error(err);
@@ -784,7 +909,10 @@
     const box = document.getElementById('book-modal-box');
     if (!overlay || !box) return;
     overlay.style.display = 'none';
+    overlay.setAttribute('aria-hidden', 'true');
     box.replaceChildren();
+    if (bookModalReturnFocus instanceof HTMLElement) bookModalReturnFocus.focus();
+    bookModalReturnFocus = null;
   }
 
   window.openBookModal = openBookModal;
@@ -1364,6 +1492,11 @@
         closeFooterModals();
         return;
       }
+      const bookOverlay = document.getElementById('book-modal-overlay');
+      if (bookOverlay && bookOverlay.style.display === 'flex') {
+        closeBookModal();
+        return;
+      }
       const modals = [
         'modal-overlay',
         'event-books-overlay',
@@ -1797,6 +1930,13 @@
         if (event.target === eventOverlay || event.target.closest('[data-close-event-books]')) {
           closeEventBooksModal();
         }
+      });
+    }
+
+    const bookOverlay = document.getElementById('book-modal-overlay');
+    if (bookOverlay) {
+      bookOverlay.addEventListener('click', (event) => {
+        if (event.target === bookOverlay) closeBookModal();
       });
     }
   });

@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="floor-plan-editor" data-floor-plan-editor data-layout='{{ floor_plan_layout | tojson }}' data-objects='{{ floor_plan_objects | tojson }}' data-save-url="{{ url_for('admin.save_floor_plan_layout') }}" data-reset-url="{{ url_for('admin.reset_floor_plan_position', cabinet_id=0) }}">
+  <div class="section-head floor-plan-editor__head">
+    <p class="eyebrow">展場配置</p>
+    <h1>🗺️ 平面圖編輯</h1>
+  </div>
+
+  <div class="floor-plan-editor__workspace">
+    <div class="floor-plan-editor__map-panel">
+      <div class="floor-plan-editor__canvas" data-plan-canvas aria-label="展示櫃平面圖"></div>
+    </div>
+
+    <aside class="floor-plan-editor__inspector" aria-label="櫃位座標設定">
+      <div class="floor-plan-editor__selected">
+        <span class="eyebrow">選取櫃位</span>
+        <strong data-plan-selected-name>尚未選取</strong>
+      </div>
+      <label class="floor-plan-editor__snap-control">
+        <span>格線</span>
+        <select data-plan-snap-step>
+          <option value="1">1%</option>
+          <option value="2.5" selected>2.5%</option>
+          <option value="5">5%</option>
+        </select>
+      </label>
+      <div class="floor-plan-editor__fields">
+        <label><span>左側</span><input type="number" min="0" max="100" step="0.5" inputmode="decimal" data-plan-field="left" disabled></label>
+        <label><span>上方</span><input type="number" min="0" max="100" step="0.5" inputmode="decimal" data-plan-field="top" disabled></label>
+        <label><span>寬度</span><input type="number" min="1" max="100" step="0.5" inputmode="decimal" data-plan-field="width" disabled></label>
+        <label><span>高度</span><input type="number" min="1" max="100" step="0.5" inputmode="decimal" data-plan-field="height" disabled></label>
+      </div>
+      <div class="floor-plan-editor__object-fields">
+        <label><span>名稱</span><input type="text" maxlength="80" data-plan-object-label disabled></label>
+        <label><span>物件類型</span>
+          <select data-plan-object-kind disabled>
+            <option value="walkway">走道</option>
+            <option value="entrance">入口</option>
+            <option value="checkout">收銀區</option>
+            <option value="service">服務台</option>
+            <option value="activity">活動區</option>
+            <option value="fixture">設施</option>
+          </select>
+        </label>
+      </div>
+      <div class="floor-plan-editor__actions">
+        <button type="button" class="btn btn--secondary" data-plan-reset disabled>恢復預設</button>
+        <button type="button" class="btn btn--secondary" data-plan-remove-object hidden>移除物件</button>
+        <button type="button" class="btn btn--primary" data-plan-save>儲存配置</button>
+      </div>
+      <p class="floor-plan-editor__status" data-plan-status aria-live="polite"></p>
+    </aside>
+  </div>
+
+  <div class="floor-plan-editor__unplaced-section">
+    <h2>未配置展示櫃</h2>
+    <ul class="floor-plan-editor__unplaced" data-plan-unplaced></ul>
+  </div>
+
+  <div class="floor-plan-editor__objects-section">
+    <div class="floor-plan-editor__objects-head">
+      <h2>周邊物件</h2>
+      <div class="floor-plan-editor__object-add">
+        <select data-plan-add-object-kind aria-label="新增物件類型">
+          <option value="walkway">走道</option>
+          <option value="entrance">入口</option>
+          <option value="checkout">收銀區</option>
+          <option value="service">服務台</option>
+          <option value="activity">活動區</option>
+          <option value="fixture">設施</option>
+        </select>
+        <button type="button" class="btn btn--secondary" data-plan-add-object>新增物件</button>
+      </div>
+    </div>
+    <ul class="floor-plan-editor__object-list" data-plan-object-list></ul>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/floor_plan_editor.js', v=static_version) }}" defer></script>
+{% endblock %}

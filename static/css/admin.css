@@ -2290,6 +2290,358 @@
   font-weight: 800;
 }
 
+/* Authenticated floor-plan editing surface. */
+.floor-plan-editor {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  max-width: none;
+}
+
+.floor-plan-editor__head {
+  margin: 0;
+}
+
+.floor-plan-editor__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  gap: 18px;
+  align-items: start;
+}
+
+.floor-plan-editor__map-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.floor-plan-editor__canvas {
+  --plan-grid-size: 2.5%;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  aspect-ratio: 18 / 9;
+  border: 18px solid #ffffff;
+  background-color: #f8fafc;
+  background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+  background-size: var(--plan-grid-size) var(--plan-grid-size);
+}
+
+/* Keep the interactive map full width instead of introducing a horizontal
+   viewport when the admin sidebar leaves limited desktop space. */
+@media (max-width: 1120px) {
+  .floor-plan-editor__workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .floor-plan-editor__inspector {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .floor-plan-editor__selected,
+  .floor-plan-editor__status {
+    grid-column: 1 / -1;
+  }
+}
+
+.floor-plan-editor__node,
+.floor-plan-editor__object {
+  position: absolute;
+  left: calc(var(--plan-left) * 1%);
+  top: calc(var(--plan-top) * 1%);
+  width: calc(var(--plan-width) * 1%);
+  height: calc(var(--plan-height) * 1%);
+  min-height: 34px;
+  padding: 4px 7px;
+  border: 2px solid #64748b;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.96);
+  color: #334155;
+  cursor: grab;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  touch-action: none;
+}
+
+.floor-plan-editor__node {
+  z-index: 2;
+}
+
+.floor-plan-editor__node:active {
+  cursor: grabbing;
+}
+
+.floor-plan-editor__node:hover,
+.floor-plan-editor__node.is-selected,
+.floor-plan-editor__node:focus-visible,
+.floor-plan-editor__object:hover,
+.floor-plan-editor__object.is-selected,
+.floor-plan-editor__object:focus-visible {
+  border-color: #2563eb;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+.floor-plan-editor__object {
+  z-index: 1;
+  border: 2px solid #94a3b8;
+  border-radius: 3px;
+  background: rgba(226, 232, 240, 0.78);
+  color: #334155;
+  cursor: grab;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.floor-plan-editor__object:active {
+  cursor: grabbing;
+}
+
+.floor-plan-editor__object--walkway {
+  border-style: dashed;
+  background: rgba(219, 234, 254, 0.66);
+  color: #1e3a5f;
+}
+
+.floor-plan-editor__object--entrance {
+  border-color: #0f766e;
+  background: rgba(204, 251, 241, 0.78);
+  color: #115e59;
+}
+
+.floor-plan-editor__object--checkout {
+  border-color: #a16207;
+  background: rgba(254, 243, 199, 0.86);
+  color: #713f12;
+}
+
+.floor-plan-editor__object--service {
+  border-color: #7c3aed;
+  background: rgba(237, 233, 254, 0.82);
+  color: #5b21b6;
+}
+
+.floor-plan-editor__object--activity {
+  border-color: #be123c;
+  background: rgba(255, 228, 230, 0.82);
+  color: #9f1239;
+}
+
+.floor-plan-editor__object--fixture {
+  border-color: #475569;
+  background: rgba(241, 245, 249, 0.9);
+}
+
+.floor-plan-editor__resize-handle {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 13px;
+  height: 13px;
+  border: 2px solid #ffffff;
+  border-radius: 2px;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px #1d4ed8;
+}
+
+.floor-plan-editor__inspector {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.floor-plan-editor__selected {
+  display: grid;
+  gap: 4px;
+}
+
+.floor-plan-editor__selected strong {
+  color: #0f172a;
+  font-size: 1.08rem;
+}
+
+.floor-plan-editor__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.floor-plan-editor__fields label,
+.floor-plan-editor__object-fields label,
+.floor-plan-editor__snap-control {
+  display: grid;
+  gap: 5px;
+  color: #475569;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.floor-plan-editor__fields input,
+.floor-plan-editor__object-fields input,
+.floor-plan-editor__object-fields select,
+.floor-plan-editor__snap-control select,
+.floor-plan-editor__object-add select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 8px;
+  color: #0f172a;
+  font: inherit;
+}
+
+.floor-plan-editor__fields input:disabled,
+.floor-plan-editor__object-fields input:disabled,
+.floor-plan-editor__object-fields select:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.floor-plan-editor__snap-control {
+  grid-template-columns: 1fr minmax(90px, 120px);
+  align-items: center;
+}
+
+.floor-plan-editor__object-fields {
+  display: grid;
+  gap: 12px;
+}
+
+.floor-plan-editor__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.floor-plan-editor__actions .btn {
+  justify-content: center;
+}
+
+.floor-plan-editor__status {
+  min-height: 1.5em;
+  margin: 0;
+  color: #166534;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.floor-plan-editor__status.is-error {
+  color: #b91c1c;
+}
+
+.floor-plan-editor__unplaced-section {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.12);
+  padding-top: 16px;
+}
+
+.floor-plan-editor__unplaced-section h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.floor-plan-editor__unplaced {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.floor-plan-editor__add-cabinet {
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.floor-plan-editor__add-cabinet:hover,
+.floor-plan-editor__add-cabinet:focus-visible {
+  border-color: #2563eb;
+  outline: none;
+}
+
+.floor-plan-editor__empty {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+.floor-plan-editor__objects-section {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.12);
+  padding-top: 16px;
+}
+
+.floor-plan-editor__objects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.floor-plan-editor__objects-head h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.floor-plan-editor__object-add {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.floor-plan-editor__object-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.floor-plan-editor__object-list-button {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
+.floor-plan-editor__object-list-button:hover,
+.floor-plan-editor__object-list-button.is-selected,
+.floor-plan-editor__object-list-button:focus-visible {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+
 @media (max-width: 720px) {
   .is-admin .modal-box {
     max-height: calc(100vh - 24px);
@@ -2303,5 +2655,26 @@
 
   .is-admin .move-book-form .actions .btn {
     flex: 1 1 0;
+  }
+
+  .floor-plan-editor__workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .floor-plan-editor__inspector {
+    grid-template-columns: 1fr;
+  }
+
+  .floor-plan-editor__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .floor-plan-editor__object-add {
+    width: 100%;
+  }
+
+  .floor-plan-editor__object-add select,
+  .floor-plan-editor__object-add .btn {
+    flex: 1 1 140px;
   }
 }

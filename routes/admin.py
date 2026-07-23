@@ -1,11 +1,13 @@
 import csv
 import io
 import json
+import math
 import os
 import re
 import secrets
 import difflib
 import time
+import unicodedata
 from collections import Counter, defaultdict
 from datetime import datetime
 
@@ -13,15 +15,20 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from sqlalchemy import func
 from werkzeug.security import check_password_hash
 
-from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, BackupArchive, Inventory, AdminUser, IssueReport, db
+from database.models import AuditLog, Book, BookTitle, Cabinet, EventSchedule, BackupArchive, Inventory, AdminUser, FloorPlanObject, FloorPlanPosition, IssueReport, db
 from similarity import parse_topics_field
 from app import (
     active_books_query,
     build_grouped_book_entries,
     cabinet_to_dict,
+    cabinet_type_name,
     csv_safe_row,
     log_action,
     collect_replenish_alerts,
+    FLOOR_PLAN_OBJECT_KINDS,
+    ensure_default_floor_plan_objects,
+    floor_plan_objects,
+    floor_plan_layout_for_cabinets,
     normalize_cover_url,
     parse_qty,
     sync_csv_to_db,
@@ -32,6 +39,77 @@ admin_bp = Blueprint("admin", __name__)
 
 
 IMPORT_ARTIFACT_MAX_AGE_SECONDS = 60 * 60
+FLOOR_PLAN_POSITION_FIELDS = {"cabinet_id", "left", "top", "width", "height"}
+FLOOR_PLAN_MAX_POSITIONS = 80
+FLOOR_PLAN_OBJECT_FIELDS = {"object_key", "kind", "label", "left", "top", "width", "height"}
+FLOOR_PLAN_MAX_OBJECTS = 30
+FLOOR_PLAN_OBJECT_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+
+
+def _parse_floor_plan_position(payload):
+    if not isinstance(payload, dict) or set(payload) != FLOOR_PLAN_POSITION_FIELDS:
+        return None
+
+    cabinet_id = payload.get("cabinet_id")
+    if isinstance(cabinet_id, bool) or not isinstance(cabinet_id, int) or cabinet_id <= 0:
+        return None
+
+    values = []
+    for key in ("left", "top", "width", "height"):
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return None
+        values.append(float(value))
+
+    left, top, width, height = values
+    if (
+        left < 0 or top < 0 or width <= 0 or height <= 0
+        or width > 100 or height > 100
+        or left + width > 100 or top + height > 100
+    ):
+        return None
+    return cabinet_id, left, top, width, height
+
+
+def _normalize_floor_plan_label(value):
+    if not isinstance(value, str):
+        return None
+    normalized = unicodedata.normalize("NFKC", value).strip()
+    if not normalized or len(normalized) > 80:
+        return None
+    if any(unicodedata.category(char).startswith("C") for char in normalized):
+        return None
+    return normalized
+
+
+def _parse_floor_plan_object(payload):
+    if not isinstance(payload, dict) or set(payload) != FLOOR_PLAN_OBJECT_FIELDS:
+        return None
+    object_key = payload.get("object_key")
+    kind = payload.get("kind")
+    label = _normalize_floor_plan_label(payload.get("label"))
+    if (
+        not isinstance(object_key, str)
+        or not FLOOR_PLAN_OBJECT_KEY_PATTERN.fullmatch(object_key)
+        or kind not in FLOOR_PLAN_OBJECT_KINDS
+        or not label
+    ):
+        return None
+
+    values = []
+    for key in ("left", "top", "width", "height"):
+        value = payload.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            return None
+        values.append(float(value))
+    left, top, width, height = values
+    if (
+        left < 0 or top < 0 or width <= 0 or height <= 0
+        or width > 100 or height > 100
+        or left + width > 100 or top + height > 100
+    ):
+        return None
+    return object_key, kind, label, left, top, width, height
 
 
 def _import_artifact_dir() -> str:
@@ -347,6 +425,152 @@ def overview():
         alerts=alerts,
         show_top_sellers=False,
     )
+
+
+@admin_bp.route("/admin/floor-plan")
+def floor_plan_editor():
+    if not session.get("is_admin"):
+        return redirect(url_for("auth.login"))
+
+    ensure_default_floor_plan_objects()
+    cabinets = Cabinet.query.order_by(Cabinet.name.asc()).all()
+    return render_template(
+        "admin_floor_plan.html",
+        title="平面圖編輯",
+        floor_plan_layout=floor_plan_layout_for_cabinets(cabinets),
+        floor_plan_objects=floor_plan_objects(),
+        show_top_sellers=False,
+    )
+
+
+@admin_bp.route("/admin/floor-plan/layout", methods=["POST"])
+def save_floor_plan_layout():
+    _, response = _require_roles("admin", "manager", json_response=True)
+    if response:
+        return response
+    if not request.is_json:
+        return jsonify({"success": False, "message": "平面圖資料必須使用 JSON。"}), 415
+
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or set(payload) not in ({"positions"}, {"positions", "objects"}):
+        return jsonify({"success": False, "message": "平面圖資料格式不正確。"}), 400
+    positions = payload.get("positions")
+    if not isinstance(positions, list) or len(positions) > FLOOR_PLAN_MAX_POSITIONS:
+        return jsonify({"success": False, "message": "平面圖位置數量不正確。"}), 400
+
+    parsed_positions = []
+    cabinet_ids = set()
+    for position in positions:
+        parsed = _parse_floor_plan_position(position)
+        if not parsed or parsed[0] in cabinet_ids:
+            return jsonify({"success": False, "message": "平面圖座標不正確。"}), 400
+        cabinet_ids.add(parsed[0])
+        parsed_positions.append(parsed)
+
+    raw_objects = payload.get("objects")
+    parsed_objects = None
+    if raw_objects is not None:
+        if not isinstance(raw_objects, list) or not 1 <= len(raw_objects) <= FLOOR_PLAN_MAX_OBJECTS:
+            return jsonify({"success": False, "message": "周邊物件數量不正確。"}), 400
+        parsed_objects = []
+        object_keys = set()
+        for floor_object in raw_objects:
+            parsed = _parse_floor_plan_object(floor_object)
+            if not parsed or parsed[0] in object_keys:
+                return jsonify({"success": False, "message": "周邊物件資料不正確。"}), 400
+            object_keys.add(parsed[0])
+            parsed_objects.append(parsed)
+
+    cabinets = Cabinet.query.filter(Cabinet.id.in_(cabinet_ids)).all() if cabinet_ids else []
+    cabinets_by_id = {cabinet.id: cabinet for cabinet in cabinets}
+    if len(cabinets_by_id) != len(cabinet_ids) or any(
+        cabinet_type_name(cabinet) != "display" for cabinet in cabinets_by_id.values()
+    ):
+        return jsonify({"success": False, "message": "只能配置展示櫃。"}), 400
+
+    try:
+        existing_positions = (
+            FloorPlanPosition.query.filter(FloorPlanPosition.cabinet_id.in_(cabinet_ids)).all()
+            if cabinet_ids
+            else []
+        )
+        existing_by_cabinet = {position.cabinet_id: position for position in existing_positions}
+        for cabinet_id, left, top, width, height in parsed_positions:
+            position = existing_by_cabinet.get(cabinet_id)
+            if position is None:
+                position = FloorPlanPosition(cabinet_id=cabinet_id)
+                db.session.add(position)
+            position.left_percent = left
+            position.top_percent = top
+            position.width_percent = width
+            position.height_percent = height
+        removed_object_count = 0
+        if parsed_objects is not None:
+            existing_objects = FloorPlanObject.query.all()
+            existing_by_key = {floor_object.object_key: floor_object for floor_object in existing_objects}
+            submitted_keys = {floor_object[0] for floor_object in parsed_objects}
+            for floor_object in existing_objects:
+                if floor_object.object_key not in submitted_keys:
+                    db.session.delete(floor_object)
+                    removed_object_count += 1
+            for object_key, kind, label, left, top, width, height in parsed_objects:
+                floor_object = existing_by_key.get(object_key)
+                if floor_object is None:
+                    floor_object = FloorPlanObject(object_key=object_key)
+                    db.session.add(floor_object)
+                floor_object.kind = kind
+                floor_object.label = label
+                floor_object.left_percent = left
+                floor_object.top_percent = top
+                floor_object.width_percent = width
+                floor_object.height_percent = height
+        if parsed_positions or parsed_objects is not None:
+            log_action(
+                "update_floor_plan",
+                target="floor_plan",
+                details=(
+                    f"positions={len(parsed_positions)},"
+                    f"objects={len(parsed_objects) if parsed_objects is not None else 0},"
+                    f"objects_removed={removed_object_count}"
+                ),
+            )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("floor plan update failed")
+        return jsonify({"success": False, "message": "平面圖儲存失敗，請稍後再試。"}), 500
+
+    all_cabinets = Cabinet.query.order_by(Cabinet.name.asc()).all()
+    return jsonify({
+        "success": True,
+        "layout": floor_plan_layout_for_cabinets(all_cabinets),
+        "objects": floor_plan_objects(),
+    })
+
+
+@admin_bp.route("/admin/floor-plan/layout/<int:cabinet_id>", methods=["DELETE"])
+def reset_floor_plan_position(cabinet_id):
+    _, response = _require_roles("admin", "manager", json_response=True)
+    if response:
+        return response
+
+    cabinet = db.session.get(Cabinet, cabinet_id)
+    if not cabinet or cabinet_type_name(cabinet) != "display":
+        return jsonify({"success": False, "message": "找不到展示櫃。"}), 404
+
+    try:
+        position = FloorPlanPosition.query.filter_by(cabinet_id=cabinet.id).first()
+        if position:
+            db.session.delete(position)
+            log_action("reset_floor_plan", target=str(cabinet.id), details="restored default position")
+            db.session.commit()
+        layout = floor_plan_layout_for_cabinets([cabinet])
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("floor plan reset failed")
+        return jsonify({"success": False, "message": "平面圖重設失敗，請稍後再試。"}), 500
+
+    return jsonify({"success": True, "position": layout[0]})
 
 
 @admin_bp.route("/admin/system")

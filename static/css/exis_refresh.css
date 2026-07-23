@@ -1804,6 +1804,19 @@ body:not(.is-admin) .result-card.has-cover.show-info .cover-pop {
   animation: none;
 }
 
+body:not(.is-admin) .result-card.has-cover button.cover-pop {
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+body:not(.is-admin) .result-card.has-cover button.cover-pop:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
+}
+
 body:not(.is-admin) .result-card.has-cover .card__header,
 body:not(.is-admin) .result-card.has-cover.show-info .card__header,
 body:not(.is-admin) .result-card.has-cover .status-list,
@@ -1836,6 +1849,170 @@ body:not(.is-admin) .result-card.has-cover.show-info .status-list {
 button:disabled {
   cursor: wait;
   opacity: 0.68;
+}
+
+/* Public book-detail map: the homepage quick guide stays disabled. */
+body:not(.is-admin) .book-location-modal {
+  display: grid;
+  gap: 14px;
+  max-width: 980px;
+}
+
+body:not(.is-admin) .book-location-modal .modal-header {
+  align-items: flex-start;
+}
+
+body:not(.is-admin) .book-location-modal .modal-close {
+  position: static;
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 40px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #1e293b;
+}
+
+body:not(.is-admin) .book-location-map__intro {
+  margin: -6px 0 0;
+}
+
+body:not(.is-admin) .book-location-map__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+body:not(.is-admin) .book-location-map__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body:not(.is-admin) .book-location-map__dot,
+body:not(.is-admin) .book-location-map__marker {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px currentColor;
+}
+
+body:not(.is-admin) .book-location-map__dot--in,
+body:not(.is-admin) .book-location-map__node.is-in-stock .book-location-map__marker {
+  background: #16a34a;
+  color: #16a34a;
+}
+
+body:not(.is-admin) .book-location-map__dot--out,
+body:not(.is-admin) .book-location-map__node.is-out-stock .book-location-map__marker {
+  background: #dc2626;
+  color: #dc2626;
+}
+
+body:not(.is-admin) .book-location-map__viewport {
+  overflow-x: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+body:not(.is-admin) .book-location-map__canvas {
+  position: relative;
+  min-width: 760px;
+  aspect-ratio: 18 / 9;
+  border: 18px solid #ffffff;
+  background-color: #f8fafc;
+  background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+  background-size: 5% 8%;
+}
+
+body:not(.is-admin) .book-location-map__object,
+body:not(.is-admin) .book-location-map__node {
+  position: absolute;
+  left: calc(var(--map-left) * 1%);
+  top: calc(var(--map-top) * 1%);
+  width: calc(var(--map-width) * 1%);
+  height: calc(var(--map-height) * 1%);
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  padding: 4px 7px;
+  border: 2px solid #64748b;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 900;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+body:not(.is-admin) .book-location-map__object {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  border: 2px solid #94a3b8;
+  border-radius: 3px;
+  background: rgba(226, 232, 240, 0.72);
+  color: #334155;
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1.1;
+  pointer-events: none;
+}
+
+body:not(.is-admin) .book-location-map__object--walkway {
+  border-style: dashed;
+  background: rgba(219, 234, 254, 0.62);
+  color: #1e3a5f;
+}
+
+body:not(.is-admin) .book-location-map__object--entrance {
+  border-color: #0f766e;
+  background: rgba(204, 251, 241, 0.74);
+  color: #115e59;
+}
+
+body:not(.is-admin) .book-location-map__object--checkout {
+  border-color: #a16207;
+  background: rgba(254, 243, 199, 0.82);
+  color: #713f12;
+}
+
+body:not(.is-admin) .book-location-map__object--service {
+  border-color: #7c3aed;
+  background: rgba(237, 233, 254, 0.8);
+  color: #5b21b6;
+}
+
+body:not(.is-admin) .book-location-map__object--activity {
+  border-color: #be123c;
+  background: rgba(255, 228, 230, 0.8);
+  color: #9f1239;
+}
+
+body:not(.is-admin) .book-location-map__node {
+  z-index: 2;
+}
+
+body:not(.is-admin) .book-location-map__node.is-in-stock {
+  border-color: #16a34a;
+}
+
+body:not(.is-admin) .book-location-map__node.is-out-stock {
+  border-color: #dc2626;
+}
+
+body:not(.is-admin) .book-location-map__marker {
+  position: absolute;
+  top: -8px;
+  right: -8px;
 }
 
 @media (max-width: 720px) {

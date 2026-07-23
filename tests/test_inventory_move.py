@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 
 from app import app, db
-from database.models import AdminUser, Cabinet, BookTitle, Inventory
+from database.models import AdminUser, AuditLog, Cabinet, BookTitle, FloorPlanPosition, Inventory
 from werkzeug.security import generate_password_hash
 
 
@@ -135,8 +135,8 @@ def test_replenish_rejects_a_title_mismatch(client):
     assert db.session.get(Inventory, reserve_book.id).cabinet_id == reserve.id
 
 
-def test_delete_cabinet_rejects_retained_archived_inventory(client):
-    cabinet = Cabinet(name="Archived history", type="display")
+def test_delete_empty_reserve_cabinet_purges_archived_inventory(client):
+    cabinet = Cabinet(name="活動（待刪）（備書櫃）", type="reserve")
     title = BookTitle(title="Archived book")
     admin = AdminUser(
         username="cabinet-delete-admin",
@@ -162,8 +162,136 @@ def test_delete_cabinet_rejects_retained_archived_inventory(client):
         headers={"X-CSRF-Token": "testtoken"},
     )
 
+    assert response.status_code == 200
+    assert response.get_json()["archived_inventory_removed"] == 1
+    assert Cabinet.query.get(cabinet.id) is None
+    assert Inventory.query.filter_by(cabinet_id=cabinet.id).first() is None
+    audit = AuditLog.query.filter_by(action="delete_cabinet", target="活動（待刪）（備書櫃）").one()
+    assert "archived_inventory_removed=1" in audit.details
+
+
+def test_delete_cabinet_still_rejects_active_inventory(client):
+    cabinet = Cabinet(name="Active cabinet", type="display")
+    title = BookTitle(title="Active book")
+    admin = AdminUser(
+        username="active-cabinet-delete-admin",
+        email="active-cabinet-delete-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([cabinet, title, admin])
+    db.session.flush()
+    db.session.add(Inventory(title_id=title.id, cabinet_id=cabinet.id, status="active", in_stock=True))
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.delete(
+        f"/cabinets/{cabinet.id}",
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
     assert response.status_code == 400
     assert Cabinet.query.get(cabinet.id) is not None
+
+
+def test_delete_cabinet_removes_its_floor_plan_position(client):
+    cabinet = Cabinet(name="Mapped cabinet", type="display")
+    admin = AdminUser(
+        username="mapped-cabinet-delete-admin",
+        email="mapped-cabinet-delete-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([cabinet, admin])
+    db.session.flush()
+    db.session.add(
+        FloorPlanPosition(
+            cabinet_id=cabinet.id,
+            left_percent=12,
+            top_percent=18,
+            width_percent=14,
+            height_percent=8,
+        )
+    )
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.delete(
+        f"/cabinets/{cabinet.id}",
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    assert response.status_code == 200
+    assert Cabinet.query.get(cabinet.id) is None
+    assert FloorPlanPosition.query.filter_by(cabinet_id=cabinet.id).first() is None
+
+
+def test_clear_empty_cabinets_preserves_active_inventory(client):
+    archived_cabinet = Cabinet(name="Archived empty cabinet", type="display")
+    mapped_cabinet = Cabinet(name="Mapped empty cabinet", type="display")
+    active_cabinet = Cabinet(name="Active cabinet", type="display")
+    empty_reserve_cabinet = Cabinet(name="Empty replenishment cabinet", type="reserve")
+    archived_title = BookTitle(title="Archived cabinet title")
+    active_title = BookTitle(title="Active cabinet title")
+    admin = AdminUser(
+        username="clear-empty-cabinets-admin",
+        email="clear-empty-cabinets-admin@example.com",
+        password_hash=generate_password_hash("pass"),
+        role="admin",
+    )
+    db.session.add_all([
+        archived_cabinet,
+        mapped_cabinet,
+        active_cabinet,
+        empty_reserve_cabinet,
+        archived_title,
+        active_title,
+        admin,
+    ])
+    db.session.flush()
+    db.session.add_all([
+        Inventory(
+            title_id=archived_title.id,
+            cabinet_id=archived_cabinet.id,
+            status="archived",
+            in_stock=False,
+        ),
+        Inventory(
+            title_id=active_title.id,
+            cabinet_id=active_cabinet.id,
+            status="active",
+            in_stock=True,
+        ),
+        FloorPlanPosition(
+            cabinet_id=mapped_cabinet.id,
+            left_percent=12,
+            top_percent=18,
+            width_percent=14,
+            height_percent=8,
+        ),
+    ])
+    db.session.commit()
+    authenticate(client, admin)
+
+    response = client.delete(
+        "/cabinets/empty",
+        headers={"X-CSRF-Token": "testtoken"},
+    )
+
+    assert response.status_code == 200
+    assert response.get_json()["deleted_count"] == 2
+    assert response.get_json()["archived_inventory_removed"] == 1
+    assert db.session.get(Cabinet, archived_cabinet.id) is None
+    assert db.session.get(Cabinet, mapped_cabinet.id) is None
+    assert db.session.get(Cabinet, active_cabinet.id) is not None
+    assert db.session.get(Cabinet, empty_reserve_cabinet.id) is not None
+    assert Inventory.query.filter_by(cabinet_id=archived_cabinet.id).first() is None
+    assert Inventory.query.filter_by(cabinet_id=active_cabinet.id, status="active").one()
+    assert FloorPlanPosition.query.filter_by(cabinet_id=mapped_cabinet.id).first() is None
+    audit = AuditLog.query.filter_by(action="delete_empty_cabinets", target="bulk").one()
+    assert "cabinet_count=2" in audit.details
+    assert "archived_inventory_removed=1" in audit.details
+    assert "reserve_cabinets_protected=1" in audit.details
 
 
 def test_legacy_quantity_endpoints_reject_unsupported_changes(client):

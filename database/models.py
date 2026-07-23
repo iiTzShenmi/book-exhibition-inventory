@@ -13,6 +13,41 @@ class Cabinet(db.Model):
     books = db.relationship("Inventory", backref="cabinet", lazy=True)
 
 
+class FloorPlanPosition(db.Model):
+    """Persisted display-cabinet geometry for the public exhibition map."""
+
+    __tablename__ = "floor_plan_position"
+    __table_args__ = (db.UniqueConstraint("cabinet_id", name="uq_floor_plan_position_cabinet"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    cabinet_id = db.Column(db.Integer, db.ForeignKey("cabinet.id"), nullable=False, index=True)
+    left_percent = db.Column(db.Float, nullable=False)
+    top_percent = db.Column(db.Float, nullable=False)
+    width_percent = db.Column(db.Float, nullable=False)
+    height_percent = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    cabinet = db.relationship("Cabinet", backref=db.backref("floor_plan_position", uselist=False))
+
+
+class FloorPlanObject(db.Model):
+    """Editable non-inventory features shown around exhibition cabinets."""
+
+    __tablename__ = "floor_plan_object"
+
+    id = db.Column(db.Integer, primary_key=True)
+    object_key = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    kind = db.Column(db.String(24), nullable=False)
+    label = db.Column(db.String(80), nullable=False)
+    left_percent = db.Column(db.Float, nullable=False)
+    top_percent = db.Column(db.Float, nullable=False)
+    width_percent = db.Column(db.Float, nullable=False)
+    height_percent = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class BookTitle(db.Model):
     __tablename__ = "book_title"
 

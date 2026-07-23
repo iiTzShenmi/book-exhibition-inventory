@@ -33,9 +33,9 @@
     {% set author = (authors or {}).get(title, '') %}
     <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ title }}" data-author="{{ author }}" data-entries='{{ entries | tojson | safe }}' data-source="search_result">
       {% if cover %}
-      <div class="cover-pop">
-        <img src="{{ cover }}" alt="{{ title }} 封面">
-      </div>
+      <button type="button" class="cover-pop" data-ui-action="open-book-modal" data-title="{{ title }}" aria-label="查看《{{ title }}》的展場位置">
+        <img src="{{ cover }}" alt="">
+      </button>
       {% endif %}
       <div class="card__header">
         <span class="chip chip--soft">展場書籍</span>
@@ -91,9 +91,9 @@
     {% set cover = item.cover %}
     <article class="card result-card{% if cover %} has-cover{% endif %}" data-title="{{ item.title }}" data-author="{{ item.author or '' }}" data-entries='{{ item.entries | tojson | safe }}' data-source="suggestion">
       {% if cover %}
-      <div class="cover-pop">
-        <img src="{{ cover }}" alt="{{ item.title }} 封面">
-      </div>
+      <button type="button" class="cover-pop" data-ui-action="open-book-modal" data-title="{{ item.title }}" aria-label="查看《{{ item.title }}》的展場位置">
+        <img src="{{ cover }}" alt="">
+      </button>
       {% endif %}
       <div class="card__header">
         <span class="chip chip--soft">建議</span>

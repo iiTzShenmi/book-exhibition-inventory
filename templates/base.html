@@ -145,8 +145,8 @@
         </div>
       </div>
 
-      <div id="book-modal-overlay" class="modal-overlay u-hidden">
-        <div id="book-modal-box" class="modal-box medium"></div>
+      <div id="book-modal-overlay" class="modal-overlay u-hidden" aria-hidden="true">
+        <div id="book-modal-box" class="modal-box medium" role="dialog" aria-modal="true" aria-labelledby="book-location-title" tabindex="-1"></div>
       </div>
 
       <div id="about-overlay" class="modal-overlay u-hidden">
@@ -189,6 +189,7 @@
           <nav class="admin-nav" aria-label="Admin">
             <a class="admin-nav__link{% if request.endpoint == 'admin.overview' %} is-active{% endif %}" href="{{ url_for('admin.overview') }}">📊 概覽</a>
             <a class="admin-nav__link{% if request.endpoint == 'admin.dashboard' %} is-active{% endif %}" href="{{ url_for('admin.dashboard') }}">📚 庫存</a>
+            <a class="admin-nav__link{% if request.endpoint == 'admin.floor_plan_editor' %} is-active{% endif %}" href="{{ url_for('admin.floor_plan_editor') }}">🗺️ 平面圖</a>
             <a class="admin-nav__link{% if request.endpoint == 'admin.admin_events' %} is-active{% endif %}" href="{{ url_for('admin.admin_events') }}">⚡ 活動</a>
             <a class="admin-nav__link{% if request.endpoint == 'admin.system_page' %} is-active{% endif %}" href="{{ url_for('admin.system_page') }}">⚙️ 系統</a>
           </nav>

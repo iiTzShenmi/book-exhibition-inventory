@@ -7,7 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
-from database.models import Book, BookTitle, Cabinet, EventSchedule, db
+from database.models import Book, BookTitle, Cabinet, EventSchedule, FloorPlanPosition, db
 from database.services import get_top_books
 from app import (
     active_books_query,
@@ -232,6 +232,24 @@ def _normalize_cabinet_type(value):
     return norm
 
 
+def _remove_empty_cabinet_records(cabinet):
+    """Delete an empty cabinet and its non-active inventory and map position."""
+    archived_inventory = (
+        Book.query
+        .filter(Book.cabinet_id == cabinet.id, Book.status != "active")
+        .all()
+    )
+    for inventory in archived_inventory:
+        db.session.delete(inventory)
+
+    floor_plan_position = FloorPlanPosition.query.filter_by(cabinet_id=cabinet.id).first()
+    if floor_plan_position:
+        db.session.delete(floor_plan_position)
+
+    db.session.delete(cabinet)
+    return len(archived_inventory), bool(floor_plan_position)
+
+
 @inventory_bp.route("/cabinets", methods=["POST"])
 def create_cabinet():
     if not session.get("is_admin"):
@@ -319,17 +337,81 @@ def delete_cabinet(cabinet_id):
         return jsonify({"success": False, "message": "未登入"}), 401
 
     cabinet = Cabinet.query.get_or_404(cabinet_id)
-    if cabinet.books:
-        return jsonify({"success": False, "message": "櫃位仍有書籍或保留的庫存紀錄，無法刪除"}), 400
+    active_inventory = Book.query.filter_by(cabinet_id=cabinet.id, status="active").first()
+    if active_inventory:
+        return jsonify({"success": False, "message": "櫃位仍有展示中的書籍，請先移除後再刪除"}), 400
 
     try:
         deleted_payload = {"name": cabinet.name, "type": cabinet.type}
-        db.session.delete(cabinet)
-        log_action("delete_cabinet", target=cabinet.name)
+        archived_inventory_removed, floor_plan_position_removed = _remove_empty_cabinet_records(cabinet)
+        log_action(
+            "delete_cabinet",
+            target=cabinet.name,
+            details=(
+                f"type={cabinet_type_name(cabinet)},"
+                f"archived_inventory_removed={archived_inventory_removed},"
+                f"floor_plan_position_removed={floor_plan_position_removed}"
+            ),
+        )
         db.session.commit()
-        return jsonify({"success": True, "cabinet_id": cabinet_id, "deleted": deleted_payload})
+        return jsonify({
+            "success": True,
+            "cabinet_id": cabinet_id,
+            "deleted": deleted_payload,
+            "archived_inventory_removed": archived_inventory_removed,
+        })
     except Exception:
         return _operation_failed()
+
+
+@inventory_bp.route("/cabinets/empty", methods=["DELETE"])
+def delete_empty_cabinets():
+    """Delete empty display cabinets while preserving replenishment cabinets."""
+    if not session.get("is_admin"):
+        return jsonify({"success": False, "message": "未登入"}), 401
+
+    try:
+        cabinet_query = Cabinet.query.order_by(Cabinet.id.asc())
+        if is_postgres():
+            cabinet_query = cabinet_query.with_for_update()
+        empty_cabinets = []
+        protected_reserve_cabinets = 0
+        for cabinet in cabinet_query.all():
+            if cabinet_type_name(cabinet) != "display":
+                protected_reserve_cabinets += 1
+                continue
+            active_inventory = Book.query.filter_by(cabinet_id=cabinet.id, status="active").first()
+            if active_inventory is None:
+                empty_cabinets.append(cabinet)
+
+        archived_inventory_removed = 0
+        floor_plan_positions_removed = 0
+        for cabinet in empty_cabinets:
+            archived_count, position_removed = _remove_empty_cabinet_records(cabinet)
+            archived_inventory_removed += archived_count
+            floor_plan_positions_removed += int(position_removed)
+
+        if empty_cabinets:
+            log_action(
+                "delete_empty_cabinets",
+                target="bulk",
+                details=(
+                    f"cabinet_count={len(empty_cabinets)},"
+                    f"archived_inventory_removed={archived_inventory_removed},"
+                    f"floor_plan_positions_removed={floor_plan_positions_removed},"
+                    f"reserve_cabinets_protected={protected_reserve_cabinets}"
+                ),
+            )
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "deleted_count": len(empty_cabinets),
+            "archived_inventory_removed": archived_inventory_removed,
+            "protected_reserve_count": protected_reserve_cabinets,
+            "message": f"已清除 {len(empty_cabinets)} 個空展示櫃。",
+        })
+    except Exception:
+        return _operation_failed("empty cabinet cleanup failed")
 
 
 @inventory_bp.route("/cabinets/<int:cabinet_id>/books", methods=["GET"])

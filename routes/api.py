@@ -16,7 +16,9 @@ from app import (
     cabinet_to_dict,
     collect_replenish_alerts,
     cover_url_for_title,
+    floor_plan_objects,
     get_csrf_token,
+    floor_plan_layout_for_cabinets,
     log_action,
     is_postgres,
     limiter,
@@ -311,18 +313,45 @@ def book_details(title):
     entries = grouped_map.get(title, [])
 
     if not is_admin:
+        floor_plan = floor_plan_layout_for_cabinets(
+            Cabinet.query.order_by(Cabinet.name.asc()).all()
+        )
+        surrounding_objects = floor_plan_objects()
         modal_html = render_template_string("""
-        <div class="modal-content">
-        <h2>{{ title }}</h2>
-        {% for entry in entries %}
-          <div class="modal-row">
-            <span>{{ entry.cabinet }}</span>
-            <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
+        <div class="modal-content book-location-modal"
+             data-book-location-map
+             data-book-title="{{ title }}"
+             data-location-entries='{{ entries | tojson }}'
+             data-floor-plan='{{ floor_plan | tojson }}'
+             data-floor-plan-objects='{{ surrounding_objects | tojson }}'>
+          <div class="modal-header">
+            <div>
+              <p class="eyebrow">展場位置</p>
+              <h2 id="book-location-title">{{ title }}</h2>
+            </div>
+            <button type="button" class="modal-close" data-ui-action="close-book-modal" aria-label="關閉書籍位置">&times;</button>
           </div>
-        {% endfor %}
-        <button type="button" class="close-btn" data-ui-action="close-book-modal">關閉</button>
+          <p class="muted book-location-map__intro">綠點表示展示中，紅點表示該櫃位暫無展示。</p>
+          <div class="book-location-map__legend" aria-hidden="true">
+            <span><i class="book-location-map__dot book-location-map__dot--in"></i>展示中</span>
+            <span><i class="book-location-map__dot book-location-map__dot--out"></i>暫無展示</span>
+          </div>
+          <div class="book-location-map__viewport" aria-label="展場平面圖">
+            <div class="book-location-map__canvas" data-book-location-canvas aria-hidden="true"></div>
+          </div>
+          <p class="sr-only" data-book-location-summary aria-live="polite"></p>
+
+          {# Kept only for the event-book parser; the public location view is the map. #}
+          <div class="sr-only" data-book-location-legacy-entries aria-hidden="true">
+          {% for entry in entries %}
+            <div class="modal-row" data-book-location-entry>
+              <span>{{ entry.cabinet }}</span>
+              <span class="stat {{ entry.cls }}">{{ entry.status }}</span>
+            </div>
+          {% endfor %}
+          </div>
         </div>
-        """, title=title, entries=entries)
+        """, title=title, entries=entries, floor_plan=floor_plan, surrounding_objects=surrounding_objects)
 
         response = make_response(modal_html)
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
